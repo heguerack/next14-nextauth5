@@ -17,7 +17,7 @@ git push -u origin main
 git branch
 git checkout main
 git add .
-git commit -m "final commit - end of the project fopr now"
+git commit -m "porjct setup, login and register pages, cardwraper component"
 git push -u origin main
 ```
 

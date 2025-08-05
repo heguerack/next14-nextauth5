@@ -778,3 +778,245 @@ export async function registerAction(values: z.infer<typeof RegisterSchema>) {
   }
 }
 ```
+
+## DATABASE AND SCHEMA
+
+### Install prisma
+
+- `npm i -D prisma@5.7.1` and `npm i @prisma/client@5.7.1` and `npm i @auth/prisma-adapter@1.0.12`
+
+### Create a db.ts file in lib folder
+
+```ts
+import { PrismaClient } from '@prisma/client'
+
+declare global {
+  var prisma: PrismaClient | undefined
+}
+
+export const db = globalThis.prisma || new PrismaClient()
+
+if (process.env.NODE_ENV !== 'production') globalThis.prisma = db
+```
+
+- ADD .ENV
+
+- create a .env file in the root, dont forget to marke it in gitignore
+
+### init PRISMA
+
+- `npx prisma init`
+- replace the DATABASE_URL crfeated in .env with our own from neon db
+- create a quick user model in prisma>schema.prisma
+
+```ts
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id   String @id @default(cuid())
+  name String
+}
+
+```
+
+- run `npx prisma generate` , now we can access the user model in our docs or files
+- run `npx prisma db push` , now we can seee items in db, we syncked to db
+
+### Create proper user models with the help of NEXTAUTH
+
+- `https://authjs.dev/getting-started/adapters/prisma`
+- copy and paste a USer model, adjust a s needed
+
+```ts
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime? @map("email_verified")
+  image         String?
+  accounts      Account[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String  @map("user_id")
+  type              String
+  provider          String
+  providerAccountId String  @map("provider_account_id")
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+```
+
+- we forgot to add a passsword to the user, so do, generate and push
+- password should optional, as we areregisterrinf wiout password too
+
+```ts
+  model User {
+    id            String    @id @default(cuid())
+    password       String?
+    name          String?
+    email         String?   @unique
+    emailVerified DateTime? @map("email_verified")
+    image         String?
+    accounts      Account[]
+
+    @@map("users")
+  }
+```
+
+## REGISTER FUNCIONALITY
+
+- go to register action
+
+```ts
+'use server'
+
+import { db } from '@/lib/db'
+import { RegisterSchema } from '@/schemas'
+import z from 'zod'
+
+export async function registerAction(values: z.infer<typeof RegisterSchema>) {
+  const validatedValues = RegisterSchema.safeParse(values)
+  // console.log(values)
+
+  if (!validatedValues) {
+    return { error: 'Invalid Values' }
+  }
+  const createUser = await db.user.create({
+    data: values,
+  })
+  if (!createUser) {
+    return { error: 'Unable to creat user' }
+  }
+  return {
+    success: 'User created successfully',
+  }
+}
+```
+
+- keep in mid that by savin=g the user that way we leave the passwrod exposed in case of a breach.
+
+- We also have to check if the user exists!!
+
+- `npm i bcryptjs@2.4.3`
+- `npm i --save-dev @types/bcryptjs@2.4.6`
+- test the action now
+
+### Create getUserByEmail and getUserById function helpers
+
+```ts
+import { db } from '@/lib/db'
+
+export const getUserByEmail = async (email: string) => {
+  try {
+    const user = await db.user.findUnique({
+      where: { email: email },
+    })
+    return user
+  } catch (error) {
+    return null
+  }
+}
+```
+
+```ts
+import { db } from '@/lib/db'
+
+export const getUserById = async (id: string) => {
+  try {
+    const user = await db.user.findUnique({
+      where: { id: id },
+    })
+    return user
+  } catch (error) {
+    return null
+  }
+}
+```
+
+## MIDDLEWARE AND LOGIN
+
+### install nextauth first
+
+- `npm i next-auth@5.0.0-beta.4`
+- create an auth.ts in the root
+- notice we destructure GET and POST prior to exporting, so when we create atuh api aroiute we can jat grab them without destructurin there like Brad did in his eccomerce project
+
+```ts
+import NextAuth from 'next-auth'
+import GitHub from 'next-auth/providers/github'
+
+export const {
+  handlers: { GET, POST },
+  auth,
+} = NextAuth({
+  providers: [GitHub],
+})
+```
+
+### Create the Next Auth api route
+
+- create a file in app/api/auth/[...nextautp]/route.ts
+- so basically what it does is to expose the authstufff via api. I goot dig more into this to know what the heck they really do under the hood, and why this.
+
+```ts
+export { GET, POST } from '@/auth'
+```
+
+- Notice that if you try to access the route, that is /api/auth/providers you will get an error. And thus, because nextauth requires to add a secret in .env. So go ahead and do that!!
+
+```ts
+AUTH_SECRET = 'mystring'
+```
+
+### MIDLEWARE
+
+- create afile in the root called middleware, it has to be called that way as next.js requires it that way.
+- so what config means is, anything that is in the matcher is where the middleware funtion will be ran. so if matcher:[/auth/login] then the middleware will run on just `/auth/login`
+- the following expression means everything but some public files and APIs
+
+```ts
+import { auth } from './auth'
+
+export default auth((req) => {
+  const isLoggedIn = !!req.auth
+  console.log('ROUTE', req.nextUrl.pathname)
+  console.log('is logged in ?: ', isLoggedIn)
+})
+
+export const config = {
+  matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
+}
+```
+
+- But the way we are going to deal with our logic is as follows. we will make all routes private. obviously the ones in the matcheer as the the moddlewarew will run only there. anyways, we will the start adding our logic to determine who can access some pages. so its like the other way around, or how things are usually done.
+
+### lets push a new branch to github
+
+- lets do it now so that we are up to date before with deal with the next section, which is about splitting our auth files into two due to compatibility issues with prisma adapters. so its like a work around.
+
+## Auht.ts splitting into auth.ts and auth.config.ts
