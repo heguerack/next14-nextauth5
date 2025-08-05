@@ -1,9 +1,47 @@
-import { auth } from './auth'
+import NextAuth from 'next-auth'
+import authConfig from '@/auth.config'
+import {
+  apiAuthPrefix,
+  authRoutes,
+  DEFAULT_LOGIN_REDIRECT,
+  publicRoutes,
+} from './routes'
+
+const { auth } = NextAuth(authConfig)
 
 export default auth((req) => {
+  // console.log('ROUTE', req.nextUrl.pathname)
+  // console.log('is logged in ?: ', isLoggedIn)
+  const { nextUrl } = req
+
   const isLoggedIn = !!req.auth
-  console.log('ROUTE', req.nextUrl.pathname)
-  console.log('is logged in ?: ', isLoggedIn)
+
+  const isApiAuthRoute = nextUrl.pathname.startsWith(apiAuthPrefix)
+  const isPublicRoute = publicRoutes.includes(nextUrl.pathname)
+  const isAuthRoute = authRoutes.includes(nextUrl.pathname)
+
+  // Aloow every single api route
+  if (isApiAuthRoute) {
+    return null
+  }
+
+  // allow ever single aouth route, but if logged in then redirect
+  if (isAuthRoute) {
+    if (isLoggedIn) {
+      // So we have to pass nextUrl with next js, so that it adds the domain prior to
+      return Response.redirect(new URL(DEFAULT_LOGIN_REDIRECT, nextUrl))
+    }
+    return null
+  }
+
+  // if not logged in and not in piblic route then log in!!
+  //  ["/"] = we say allow just "/"; not "/"/somehtingElse
+  if (!isLoggedIn && !isPublicRoute) {
+    return Response.redirect(new URL('/auth/login', nextUrl))
+  }
+
+  //allow everything else
+  return null
 })
 
 export const config = {

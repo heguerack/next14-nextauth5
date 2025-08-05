@@ -1017,6 +1017,199 @@ export const config = {
 
 ### lets push a new branch to github
 
-- lets do it now so that we are up to date before with deal with the next section, which is about splitting our auth files into two due to compatibility issues with prisma adapters. so its like a work around.
-
 ## Auht.ts splitting into auth.ts and auth.config.ts
+
+- lets do it now so that we are up to date before with deal with the next section, which is about splitting our auth files into two due to compatibility issues with prisma adapters or maybe the middleware, im not 100% sure, gotta dig into that. so the middleawre talks to auth.ts, but now it will deal with auth.config, so the middleware seems to be the problematic one.
+
+### Initial auth.config.ts
+
+```ts
+import GitHub from 'next-auth/providers/github'
+
+import type { NextAuthConfig } from 'next-auth'
+
+export default {
+  providers: [GitHub],
+} satisfies NextAuthConfig
+```
+
+### Manipulate auth.ts
+
+- From
+
+```ts
+import NextAuth from 'next-auth'
+import GitHub from 'next-auth/providers/github'
+
+export const {
+  handlers: { GET, POST },
+  auth,
+} = NextAuth({
+  providers: [GitHub],
+})
+```
+
+- To
+
+```ts
+import NextAuth from 'next-auth'
+import { PrismaAdapter } from '@auth/prisma-adapter'
+import authConfig from '@/auth.config'
+import { db } from './lib/db'
+
+export const {
+  handlers: { GET, POST },
+  auth,
+} = NextAuth({
+  adapter: PrismaAdapter(db),
+  session: { strategy: 'jwt' },
+  ...authConfig,
+})
+```
+
+### Manipulate middleware
+
+- from
+
+```ts
+import { auth } from './auth'
+
+export default auth((req) => {
+  const isLoggedIn = !!req.auth
+  console.log('ROUTE', req.nextUrl.pathname)
+  console.log('is logged in ?: ', isLoggedIn)
+})
+
+export const config = {
+  matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
+}
+```
+
+- To:
+
+```ts
+import NextAuth from 'next-auth'
+import authConfig from '@/auth.config'
+
+const { auth } = NextAuth(authConfig)
+
+export default auth((req) => {
+  const isLoggedIn = !!req.auth
+  console.log('ROUTE', req.nextUrl.pathname)
+  console.log('is logged in ?: ', isLoggedIn)
+})
+
+export const config = {
+  matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
+}
+```
+
+### Creat a Test Page
+
+- this should show null, which means everything as expected is working , we are just not logged in.
+
+```ts
+import { auth } from '@/auth'
+
+export default async function page() {
+  const session = await auth()
+  return <div>{JSON.stringify(session)}</div>
+}
+```
+
+### create a ts file called routes, in the root
+
+- we will use them like constants in our middleware file
+
+```ts
+/**
+ * An array of routes that are accessible to the public
+ * These routes do not require authentication
+ * @type {string[]}
+ */
+export const publicRoutes = ['/', '/auth/new-verification']
+
+/**
+ * An array of routes that are used for authentication
+ * These routes will redirect logged in users to /settings
+ * @type {string[]}
+ */
+export const authRoutes = [
+  '/auth/login',
+  '/auth/register',
+  '/auth/error',
+  '/auth/reset',
+  '/auth/new-password',
+]
+
+/**
+ * The prefix for API authentication routes
+ * Routes that start with this prefix are used for API authentication purposes
+ * @type {string}
+ */
+export const apiAuthPrefix = '/api/auth'
+
+/**
+ * The default redirect path after logging in
+ * @type {string}
+ */
+export const DEFAULT_LOGIN_REDIRECT = '/settings'
+```
+
+### Back to middleware
+
+```ts
+import NextAuth from 'next-auth'
+import authConfig from '@/auth.config'
+import {
+  apiAuthPrefix,
+  authRoutes,
+  DEFAULT_LOGIN_REDIRECT,
+  publicRoutes,
+} from './routes'
+
+const { auth } = NextAuth(authConfig)
+
+export default auth((req) => {
+  // console.log('ROUTE', req.nextUrl.pathname)
+  // console.log('is logged in ?: ', isLoggedIn)
+  const { nextUrl } = req
+
+  const isLoggedIn = !!req.auth
+
+  const isApiAuthRoute = nextUrl.pathname.startsWith(apiAuthPrefix)
+  const isPublicRoute = publicRoutes.includes(nextUrl.pathname)
+  const isAuthRoute = authRoutes.includes(nextUrl.pathname)
+
+  // Aloow every single api route
+  if (isApiAuthRoute) {
+    return null
+  }
+
+  // allow ever single aouth route, but if logged in then redirect
+  if (isAuthRoute) {
+    if (isLoggedIn) {
+      // So we have to pass nextUrl with next js, so that it adds the domain prior to
+      return Response.redirect(new URL(DEFAULT_LOGIN_REDIRECT, nextUrl))
+    }
+    return null
+  }
+
+  // if not logged in and not in piblic route then log in!!
+  //  ["/"] = we say allow just "/"; not "/"/somehtingElse
+  if (!isLoggedIn && !isPublicRoute) {
+    return Response.redirect(new URL('/auth/login', nextUrl))
+  }
+
+  //allow everything else
+  return null
+})
+
+export const config = {
+  matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
+}
+```
+
+### Test middleware
+
+- you should be able to go to all we have in our folders but `/settings`

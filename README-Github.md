@@ -17,7 +17,7 @@ git push -u origin main
 git branch
 git checkout main
 git add .
-git commit -m "porjct setup, login and register pages, cardwraper component"
+git commit -m "before auth splitting"
 git push -u origin main
 ```
 
@@ -26,8 +26,8 @@ git push -u origin main
 - -donbt forget to puch to the new branch
 
 ```ts
-git checkout -b dbsetup
-git push -u origin dbsetup
+git checkout -b before-auth-splitting
+git push -u origin before-auth-splitting
 ```
 
 - Now swith to main and pull from github
