@@ -1997,3 +1997,169 @@ await sendVerificationEmail(verificationToken.email, verificationToken.token)
 - now do the same for the login
 
 ## EMAIL VERIFICATION
+
+- `npm i react-spinners`
+- create an action to verify the token
+
+### Email verification Action
+
+```ts
+'use server'
+
+import { getVerificationTokenByToken } from '@/helpers/data/getVerificationToken'
+
+import { getUserByEmail } from '@/helpers/user/getUserByEmail'
+import { db } from '@/lib/db'
+
+export async function newVerificationTokenAction(token: string) {
+  const existingToken = await getVerificationTokenByToken(token)
+  if (!existingToken) {
+    return { error: 'Token does not exist' }
+  }
+
+  const hasExpired = new Date(existingToken.expires) < new Date()
+  if (hasExpired) {
+    return { error: 'Token has expired!' }
+  }
+
+  const existingUser = await getUserByEmail(existingToken.email)
+  if (!existingUser) {
+    return { error: 'Email does not exist' }
+  }
+
+  await db.user.update({
+    where: { id: existingUser.id },
+    data: {
+      emailVerified: new Date(),
+      // this line if the user wats to change thir email, not sure about the logic , later maybe
+      email: existingToken.email,
+    },
+  })
+
+  //remove token after
+  await db.verificationToken.delete({
+    where: { id: existingToken.id },
+  })
+
+  return { success: 'Email verified!' }
+}
+```
+
+- Notice that we are using those verification helper funtions, that communicate with db, they should be actions too. I feel is not safe. really need to dig into that
+
+### Vew-verification Page
+
+- Antonio did it in a component, i ealized i had it on a page after, so left it like that
+
+```ts
+'use client'
+
+import { newVerificationTokenAction } from '@/actions/newVerificationTokenAction'
+import { CardWrapper } from '@/components/auth/CardWrapper'
+import { FormError } from '@/components/form-error'
+import { FormSuccess } from '@/components/form-success'
+import { getVerificationTokenByToken } from '@/helpers/data/getVerificationToken'
+import { getUserByEmail } from '@/helpers/user/getUserByEmail'
+import { db } from '@/lib/db'
+import Link from 'next/link'
+import { redirect, useSearchParams } from 'next/navigation'
+import { useCallback, useEffect, useState } from 'react'
+import { BeatLoader } from 'react-spinners'
+
+// type pagePros = {
+//   searchParams: { token?: string }
+// }
+// export default async function newVerificationPage({ searchParams }: pagePros) {
+// const paramToken = await searchParams.get("")
+
+export default function newVerificationPage() {
+  const [error, setError] = useState<string | undefined>()
+  const [success, setSuccess] = useState<string | undefined>()
+
+  const token = useSearchParams().get('token')
+
+  // so basically this logic is as folows: on Submit run at the start due to useaEffect. on submit also runs if onSubmit changes. and onSubmit changes if the token changes
+  const onSubmit = useCallback(() => {
+    if (!token) {
+      setError('Missing token')
+      return
+    }
+    newVerificationTokenAction(token)
+      .then((data) => {
+        setSuccess(data.success)
+        setError(data.error)
+      })
+      .catch((error) => {
+        setError('Somethig went wrong')
+      })
+  }, [token])
+
+  useEffect(() => {
+    onSubmit()
+  }, [onSubmit])
+
+  // because we are not exporting the on submid funtion, then i like it his way better:
+  // useEffect(() => {
+  //   if (!token) {
+  //     setError('Missing token')
+  //     return
+  //   }
+  //   newVerificationTokenAction(token)
+  // .then((data) => {
+  //   setSuccess(data.success)
+  //   setError(data.error)
+  // })
+  // .catch((error) => {
+  //   setError('Somethig went wrong')
+  // })
+  // }, [token])
+  return (
+    <CardWrapper
+      headerLabel='Confirming your verification'
+      backButtonLabel='Back to login'
+      backButtonHref='auth/login'>
+      <div className='flex items-center w-full justify-center'>
+        {!success && !error && <BeatLoader />}
+
+        <FormSuccess message={success} />
+        <FormError message={error} />
+      </div>
+    </CardWrapper>
+  )
+}
+```
+
+- The logic works great but we get a local error Tokjen does not exist, and that because lcaolly react runs twice, so it reruns the logic and by then the token has been delted.
+- So you can deal with this error now, ormyou cn visually check that the user has been verified, procedd manually to login and boom
+- i tried correcting the problem like this but itdidn work, it is till runs twice
+
+```ts
+const [myToken, setMyToken] = useState(false) //new
+
+const onSubmit = useCallback(() => {
+  if (!token) {
+    setError('Missing token')
+    return
+  }
+
+  if (myToken) return // new
+
+  newVerificationTokenAction(token)
+    .then((data) => {
+      setSuccess(data.success)
+      setError(data.error)
+      setMyToken(true) //new
+    })
+    .catch((error) => {
+      setError('Somethig went wrong')
+    })
+}, [token])
+
+useEffect(() => {
+  onSubmit()
+}, [onSubmit])
+```
+
+- So i tried to have a state on the fistr run so that on the second run if would be denied if my state is tue, whci is with the first run
+
+## PASSWORD RESET TOKEN

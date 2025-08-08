@@ -1,56 +1,77 @@
-import { getVerificationTokenByToken } from '@/helpers/data/verificationToken'
+'use client'
+
+import { newVerificationTokenAction } from '@/actions/newVerificationTokenAction'
+import { CardWrapper } from '@/components/auth/CardWrapper'
+import { FormError } from '@/components/form-error'
+import { FormSuccess } from '@/components/form-success'
+import { getVerificationTokenByToken } from '@/helpers/data/getVerificationToken'
 import { getUserByEmail } from '@/helpers/user/getUserByEmail'
 import { db } from '@/lib/db'
 import Link from 'next/link'
 import { redirect, useSearchParams } from 'next/navigation'
-type pagePros = {
-  searchParams: { token?: string }
-}
+import { useCallback, useEffect, useState } from 'react'
+import { BeatLoader } from 'react-spinners'
 
-export default async function newVerificationPage({ searchParams }: pagePros) {
-  const paramToken = await searchParams.token
-  console.log('paramToken :', paramToken)
-  if (!paramToken) {
-    // handle missing token however you want
-    redirect('/auth/error?code=missing_token')
-  }
+// type pagePros = {
+//   searchParams: { token?: string }
+// }
+// export default async function newVerificationPage({ searchParams }: pagePros) {
+// const paramToken = await searchParams.get("")
 
-  const tokenExists = await getVerificationTokenByToken(paramToken)
+export default function newVerificationPage() {
+  const [error, setError] = useState<string | undefined>()
+  const [success, setSuccess] = useState<string | undefined>()
+  const [myToken, setMyToken] = useState(false)
+  const token = useSearchParams().get('token')
 
-  if (tokenExists) {
-    const user = await getUserByEmail(tokenExists.email)
-    if (!user) {
-      return (
-        <div>
-          <h1>User does not exist</h1>
-          try a to register again
-        </div>
-      )
+  // so basically this logic is as folows: on Submit run at the start due to useaEffect. on submit also runs if onSubmit changes. and onSubmit changes if the token changes
+  const onSubmit = useCallback(() => {
+    if (!token) {
+      setError('Missing token')
+      return
     }
-
-    const verifiedUser = await db.user.update({
-      where: { id: user?.id },
-      data: {
-        ...user,
-        emailVerified: new Date(),
-      },
-    })
-    console.log(verifiedUser)
-
-    if (verifiedUser) {
-      await db.verificationToken.delete({
-        where: { token: paramToken },
+    if (myToken) return
+    newVerificationTokenAction(token)
+      .then((data) => {
+        setSuccess(data.success)
+        setError(data.error)
+        setMyToken(true)
       })
-      redirect(
-        `/login?verifiedMessage=${encodeURIComponent('Successfully Verified')}`
-      )
-    }
-  }
+      .catch((error) => {
+        setError('Somethig went wrong')
+      })
+  }, [token])
+
+  useEffect(() => {
+    onSubmit()
+  }, [onSubmit])
+
+  // because we are not exporting the on submid funtion, then i like it his way better:
+  // useEffect(() => {
+  //   if (!token) {
+  //     setError('Missing token')
+  //     return
+  //   }
+  //   newVerificationTokenAction(token)
+  // .then((data) => {
+  //   setSuccess(data.success)
+  //   setError(data.error)
+  // })
+  // .catch((error) => {
+  //   setError('Somethig went wrong')
+  // })
+  // }, [token])
   return (
-    <div>
-      <h1>Verifitaction token expired</h1>
-      Try to login again to get a new verification token
-      <Link href={'/login'}>Log in page</Link>
-    </div>
+    <CardWrapper
+      headerLabel='Confirming your verification'
+      backButtonLabel='Back to login'
+      backButtonHref='auth/login'>
+      <div className='flex items-center w-full justify-center'>
+        {!success && !error && <BeatLoader />}
+
+        <FormSuccess message={success} />
+        <FormError message={error} />
+      </div>
+    </CardWrapper>
   )
 }

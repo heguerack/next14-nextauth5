@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid'
-import { getVerificationTokenByEmail } from './verificationToken'
+import { getVerificationTokenByEmail } from './getVerificationToken'
 import { db } from '@/lib/db'
 
 export async function generateVerificationToken(email: string) {
