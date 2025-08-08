@@ -28,7 +28,7 @@ export default auth((req) => {
   // allow ever single aouth route, but if logged in then redirect
   if (isAuthRoute) {
     if (isLoggedIn) {
-      // So we have to pass nextUrl with next js, so that it adds the domain prior to
+      // So we have to pass nextUrl with next js, so that it adds the domain prior to. so it becomes an absolute path
       return Response.redirect(new URL(DEFAULT_LOGIN_REDIRECT, nextUrl))
     }
     return null

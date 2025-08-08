@@ -10,6 +10,11 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum UserRole {
+  ADMIN
+  USER
+}
+
 model User {
   id            String    @id @default(cuid())
   name          String?
@@ -17,6 +22,7 @@ model User {
   password      String?
   emailVerified DateTime? @map("email_verified")
   image         String?
+  role          UserRole  @default(USER)
   accounts      Account[]
 
   @@map("users")
@@ -40,4 +46,15 @@ model Account {
 
   @@unique([provider, providerAccountId])
   @@map("accounts")
+}
+
+model VerificationToken {
+  id      String   @id @default(cuid())
+  email   String
+  token   String   @unique
+  expires DateTime
+
+  // and no need to create a relationwith the user, it can live on its own
+  //only one token for speceific email
+  @@unique([email, token])
 }

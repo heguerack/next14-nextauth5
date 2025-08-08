@@ -26,7 +26,11 @@ import { loginAction } from '@/actions/loginAction'
 
 export const LoginForm = () => {
   const searchParams = useSearchParams()
-  // const callbackUrl = searchParams.get('callbackUrl')
+  const urlError =
+    searchParams.get('error') === 'OAuthAccountNotLinked'
+      ? 'Another account already exists with the same e-mail address, maybe a cosial account withe same email'
+      : ''
+  const emailVerified = searchParams.get('verifiedMessage')
 
   // const [showTwoFactor, setShowTwoFactor] = useState(false)
   const [error, setError] = useState<string | undefined>('')
@@ -128,8 +132,10 @@ export const LoginForm = () => {
               />
             </>
           </div>
-          <FormError message={error} />
+          <FormError message={error || urlError} />
           <FormSuccess message={success} />
+          {emailVerified && <FormSuccess message={emailVerified} />}
+
           <Button disabled={isPending} type='submit' className='w-full'>
             Login
           </Button>

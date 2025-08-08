@@ -1213,3 +1213,787 @@ export const config = {
 ### Test middleware
 
 - you should be able to go to all we have in our folders but `/settings`
+
+### Back to auth.config - Credentials
+
+- auth.config from
+
+```ts
+import GitHub from 'next-auth/providers/github'
+
+import type { NextAuthConfig } from 'next-auth'
+
+export default {
+  providers: [GitHub],
+} satisfies NextAuthConfig
+```
+
+- To:
+
+```ts
+// import GitHub from 'next-auth/providers/github'
+
+import type { NextAuthConfig } from 'next-auth'
+import Credentials from 'next-auth/providers/credentials'
+import { LoginSchema } from './schemas'
+import { getUserByEmail } from './helpers/user/getUserByEmail'
+import bcrypt from 'bcryptjs'
+
+export default {
+  providers: [
+    Credentials({
+      async authorize(credentials) {
+        const validatedFileds = LoginSchema.safeParse(credentials)
+        if (validatedFileds.success) {
+          const { email, password } = validatedFileds.data
+          // check if user exists
+          const user = await getUserByEmail(email)
+          // this because if not user or if user but user does not have a [pasword. becuase they probably signed up with  say google or a diferent way
+          if (!user || !user.password) return null
+          // user.password because thast the hasshedPassword cming back
+          const passwordsMatch = await bcrypt.compare(password, user.password)
+          if (passwordsMatch) return user
+        }
+        return null
+      },
+    }),
+  ],
+} satisfies NextAuthConfig
+```
+
+### Bring signIn and signOut
+
+- they can be used in both server components or actions
+
+```ts
+import NextAuth from 'next-auth'
+import authConfig from '@/auth.config'
+
+import { PrismaAdapter } from '@auth/prisma-adapter'
+import { db } from './lib/db'
+
+export const {
+  handlers: { GET, POST },
+  auth,
+  signIn,
+  signOut,
+} = NextAuth({
+  adapter: PrismaAdapter(db),
+  session: { strategy: 'jwt' },
+  ...authConfig,
+})
+```
+
+### Back to Login action
+
+```ts
+'use server'
+
+import { signIn } from '@/auth'
+import { DEFAULT_LOGIN_REDIRECT } from '@/routes'
+import { LoginSchema } from '@/schemas'
+import { AuthError } from 'next-auth'
+import z from 'zod'
+
+export async function loginAction(values: z.infer<typeof LoginSchema>) {
+  const validatedValues = LoginSchema.safeParse(values)
+  if (!validatedValues.success) {
+    return { error: 'Invalid Objects' }
+  }
+  const { email, password } = validatedValues.data
+  try {
+    await signIn('credentials', {
+      email,
+      password,
+      redirectTo: DEFAULT_LOGIN_REDIRECT,
+    })
+  } catch (error) {
+    if (error instanceof AuthError) {
+      switch (error.type) {
+        case 'CredentialsSignin':
+          return { error: 'Invalid Credentails!' }
+        default:
+          return { error: 'Somethign went worng' }
+      }
+    }
+    // we just have to thwo this error, nextjsn requires it, not sure why
+    throw error
+  }
+}
+```
+
+### Recapitulate after addinf credentials login
+
+- So baiscally all we have done so far is to connect next auth credentials.
+- we added the provider in auth.config, the auth will check if the password and email are the ones. if yes, then nexauth will sign in with the user and email provided in this case in login action. so basically in login action, instead of us doing the authentication nad redirectiong after, we let nextauth take over. notice that we still have to add the logic to nextauth via Credentials provider in auth config
+- by the way it seems like providers can be in either auth or auth.config
+- the adapter however has to be in auth
+
+### Login Test
+
+- try to login. once logged in, we will have a session (or loggedIn session)
+- But notice that our session is just the email and password. we need to add id, role, and a bunch of more things in there. and thankfully nextauth letus do that easily with the help of callbacks. more specifically the session callback
+
+### Add a signOut button
+
+- go to settigs and add it there
+
+```ts
+import { auth, signOut } from '@/auth'
+
+export default async function page() {
+  const session = await auth()
+  return (
+    <div>
+      {JSON.stringify(session)}
+      <form
+        action={async () => {
+          'use server'
+          await signOut()
+        }}>
+        <button>Sign out</button>
+      </form>
+    </div>
+  )
+}
+```
+
+- Notice we had to add server to the action, only on the server we can use signIn and signout
+- We will learn how to log in and sign out from client componets after
+
+## CALLBACKS
+
+- Read the docs for more info `https://next-auth.js.org/configuration/callbacks`
+
+```ts
+callbacks: {
+ async signIn({ user, account, profile, email, credentials }) {
+      return true
+    },
+    async redirect({ url, baseUrl }) {
+      return baseUrl
+    },
+    async session({ session, user, token }) {
+      return session
+    },
+    async jwt({ token, user, account, profile, isNewUser }) {
+      return token
+    }
+}
+```
+
+- So lets extend our session, but before we can extend the session we have to exten the jwt, as the session uses the token to actually generate the session
+
+```ts
+import NextAuth from 'next-auth'
+import authConfig from '@/auth.config'
+
+import { PrismaAdapter } from '@auth/prisma-adapter'
+import { db } from './lib/db'
+
+export const {
+  handlers: { GET, POST },
+  auth,
+  signIn,
+  signOut,
+} = NextAuth({
+  callbacks: {
+    // hover over session to see options
+    async session({ token, session }) {
+      // we must return session
+      console.log('session from callback session :', session)
+      console.log('session token:', token)
+      return session
+    },
+    // hover over jwt for options
+    async jwt({ token }) {
+      console.log('token from callback token :', token)
+      // we must return token
+      return token
+    },
+  },
+  adapter: PrismaAdapter(db),
+  session: { strategy: 'jwt' },
+  ...authConfig,
+})
+```
+
+- console.log(token) =
+
+```ts
+console.log(token) = {
+  name: 'frank',
+  email: 'heguer76@gmail.com',
+  picture: null,
+  sub: 'cmdyjlh6y0001jhe5l8v2s7lf', // this is the id from the db!! or in other words the user.id
+  iat: 1754480561,
+  exp: 1757072561,
+  jti: 'fb15c36e-17bc-436b-865d-6edb33520880',
+}
+```
+
+```ts
+console.log(session) = {
+  user: { name: 'frank', email: 'heguer76@gmail.com', image: null },
+  expires: '2025-09-05T12:07:11.580Z',
+}
+```
+
+- As yuo can see, the session by default will include just the name, email, and image in the user object plus the expiry data.not sensitive data.
+- and right now if we console.log the token in the jwt and the token in session they shoud be the same. but then we can add info to the token in jwt, that will be added or accesible in the session token, and thus is how we inject info to our nextauth session. so basically we will add and user.id to out jwrt session to be accesibale via session, in this ase it will be session.user.id, so yeah we added to the user in the session!! :)
+
+### Add a field to the jwt token to be extracted at sesion token
+
+```ts
+ async jwt({ token, session }) {
+      console.log('token from callback token :', token)
+      // we must return token
+      session.user.customField = 'test'
+      return token
+    },
+```
+
+- so now if we console.log(token) in session, we will see that the info was added to the token
+
+```ts
+session token: {
+  name: 'frank',
+  email: 'heguer76@gmail.com',
+  picture: null,
+  sub: 'cmdyjlh6y0001jhe5l8v2s7lf',
+  iat: 1754485206,
+  exp: 1757077206,
+  jti: 'd188b476-6878-4330-a22c-7f895ef4e086',
+  customeField: 'test'
+}
+```
+
+- and now what we can do is for exaple attach the test value to the token in session
+- So now if we look at out session token, it wil, ahve the customField attahced.
+- so basically to transfer the id to the session token, we just ghave to reapet the process
+- now to add the actual id, we dont need to set anything in the jwt callback as we access to the sub in session as well and thus what we need.
+
+```ts
+  async session({ token, session }) {
+      // we must return session
+      console.log('session from callback session :', session)
+      console.log('session token:', token)
+      // if (session.user) {
+      //   session.user. = token.customField
+      // }
+      if (token.sub && session.user) {
+        session.user.id = token.sub
+      }
+      return session
+    },
+```
+
+- Now we have aces to the user.id anywhere we get access tot he session!!
+
+### Adding more fields to ur session callback
+
+- lets modify our prisma.schema to add a role
+
+```ts
+
+enum UserRole {
+  ADMIN
+  USER
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  password      String?
+  emailVerified DateTime? @map("email_verified")
+  image         String?
+  role          UserRole  @default(USER)
+  accounts      Account[]
+
+  @@map("users")
+}
+```
+
+- Shutdon the app and run `npx prisma generate` and `npx prisma db push`
+- repeat the process on adding to session, lets add the role.
+- note that this time we have to add it manually to the jtw callback token so that we can access it in session callback token. not as lucky as with the sub this time
+- now lets add the role, to do that we need to use our action to grab the user from there, as we cant really access user info in the token, not sure why, still trying to figure out things in detail
+
+```ts
+import NextAuth from 'next-auth'
+import authConfig from '@/auth.config'
+
+import { PrismaAdapter } from '@auth/prisma-adapter'
+import { db } from './lib/db'
+import { getUserById } from './helpers/user/getUserById'
+
+export const {
+  handlers: { GET, POST },
+  auth,
+  signIn,
+  signOut,
+} = NextAuth({
+  callbacks: {
+    // hover over session to see options
+    async session({ token, session }) {
+      // we must return session
+      // console.log('session from callback session :', session)
+      // console.log('session token:', token)
+      // if (session.user) {
+      //   session.user. = token.customField
+      // }
+      if (token.sub && session.user) {
+        session.user.id = token.sub
+        console.log('session token :', token)
+      }
+      return session
+    },
+    // hover over jwt for options
+    async jwt({ token }) {
+      console.log('jwt token :', token)
+
+      // we must return token
+      // token.customField = 'test'
+      // so to add the id to the session , we can just grab the sub from token in session
+      // now lets add the role, to do that we need to use our action to grab the user from there, as we cant really access user info in the token, not sure why, still trying to figure out things in detail
+      const user = await getUserById(token.sub as string)
+      token.userRole = user?.role
+      return token
+    },
+  },
+  adapter: PrismaAdapter(db),
+  session: { strategy: 'jwt' },
+  ...authConfig,
+})
+```
+
+### Modify typescript for the role, maybe zod schema too
+
+- guide fore dealing with this type bug kind opf thing `https://authjs.dev/getting-started/typescript`
+- after trying as shown in the doca, we coudnt figure it out, so we will try a difrent way
+- like I added the schema, but that and the prisma mdel is not enough.
+
+- to get rid of th type error for the user role, or any other thing you want to add, the following seems to be the work around, or work flow. add it on top, in auth.ts
+
+```ts
+// Brad placed this in a next-auth.d.ts file
+// flow used t inject values to types in nextauth
+import { UserRole } from '@prisma/client'
+
+declare module 'next-auth' {
+  interface Session {
+    user: DefaultSession['user'] & {
+      role: 'ADMIN' | 'USER'
+    }
+  }
+}
+```
+
+- And this in the session callback
+
+```ts
+session.user.role = token.userRole as UserRole
+```
+
+### Email Verified
+
+- Ok, so far so good. From loginAction we grant access to nextauth via Credentials provider. we can play with the logic via callbacks
+- We have added id and role to the session. we also learnt how to deal with the type error for the role and similar.
+- Lets now learn how to use signIn callback by NOT allowing access in case the email has not been verified
+
+```ts
+  async signIn({ user }) {
+      const existingUser = await getUserById(user.id)
+
+      if (!existingUser || !existingUser.emailVerified) {
+        return false
+      }
+      return true
+    },
+```
+
+- we will remove the signIn call back for now, but at least we now how to deal with the sign in call back as well
+
+## OAuth (Google and Github)
+
+- So if we go to `//auth/providers` the only thing we should say is just the Credentials one
+
+```ts
+{
+"credentials": {
+"id": "credentials",
+"name": "Credentials",
+"type": "credentials",
+"signinUrl": "http://localhost:3000/api/auth/signin/credentials",
+"callbackUrl": "http://localhost:3000/api/auth/callback/credentials"
+}
+}
+```
+
+- but if we add Google and GitHub
+
+```ts
+import GitHub from 'next-auth/providers/github'
+import Google from 'next-auth/providers/google'
+
+import type { NextAuthConfig } from 'next-auth'
+import Credentials from 'next-auth/providers/credentials'
+import { LoginSchema } from './schemas'
+import { getUserByEmail } from './helpers/user/getUserByEmail'
+import bcrypt from 'bcryptjs'
+
+export default {
+  providers: [
+    Credentials({
+      async authorize(credentials) {
+        const validatedFileds = LoginSchema.safeParse(credentials)
+        if (validatedFileds.success) {
+          const { email, password } = validatedFileds.data
+          // check if user exists
+          const user = await getUserByEmail(email)
+          // this because if not user or if user but user does not have a [pasword. becuase they probably signed up with say google or a diferent way
+          if (!user || !user.password) return null
+          // user.password because thast the hasshedPassword cming back
+          const passwordsMatch = await bcrypt.compare(password, user.password)
+          if (passwordsMatch) return user
+        }
+        return null
+      },
+    }),
+    GitHub,
+    Google,
+  ],
+} satisfies NextAuthConfig
+```
+
+- we get this:
+
+```ts
+  {
+  "credentials": {
+  "id": "credentials",
+  "name": "Credentials",
+  "type": "credentials",
+  "signinUrl": "http://localhost:3000/api/auth/signin/credentials",
+  "callbackUrl": "http://localhost:3000/api/auth/callback/credentials"
+  },
+  "github": {
+  "id": "github",
+  "name": "GitHub",
+  "type": "oauth",
+  "signinUrl": "http://localhost:3000/api/auth/signin/github",
+  "callbackUrl": "http://localhost:3000/api/auth/callback/github"
+  },
+  "google": {
+  "id": "google",
+  "name": "Google",
+  "type": "oidc",
+  "signinUrl": "http://localhost:3000/api/auth/signin/google",
+  "callbackUrl": "http://localhost:3000/api/auth/callback/google"
+  }
+  }
+```
+
+### Add keys to the GitHub and Google objects
+
+- bring them from .env, which means we have to add those values from google and github
+
+```ts
+ GitHub({
+      clientId: process.env.GITHUB_CLIENT_ID,
+      clientSecret: process.env.GITHUB_CLIENT_SECRET,
+    }),
+```
+
+- Go to GitHub>settings>Developer Settings(all the way to the bottom)>OAuth >
+- register a new OAuth app, Homepage URL:http://localhost:3000 ,adn the callbackUrl can be grabbed from the `http://localhost:3000/api/auth/providers` route, which is `http://localhost:3000/api/auth/callback/github`
+
+- Lets do the same thing, but for google
+- `https://console.cloud.google.com/`>create a new project(in projects)>give it a name>create>selec project>apis and services>OAuth consentr screen> app information+ user suport email>create>credentials>ctea credentails>OAuth client id>aplication type (web application)>leave name as it is>URIs= http://localhost:3000 > Authorized redirect URIs
+  ="http://localhost:3000/api/auth/callback/google
+-
+
+### Implement social login
+
+- Now that we added google and github for sign in, go to Social.tsx and the the funtionality
+- we could do soemthing asdn say await signIn("google") in loginAction, but that ould be just server
+- instead e are going to do it right from the cleint as follwos, go to Social
+- Notice that the signIn comes from `next-auth/react` and from `@/auth`
+- also we dont have `redirectTo` we have `callbackUrl`
+
+```ts
+'use client'
+
+import { signIn } from 'next-auth/react'
+import { FcGoogle } from 'react-icons/fc'
+import { FaGithub } from 'react-icons/fa'
+import { useSearchParams } from 'next/navigation'
+
+import { Button } from '@/components/ui/button'
+import { DEFAULT_LOGIN_REDIRECT } from '@/routes'
+
+export const Social = () => {
+  const searchParams = useSearchParams()
+  const callbackUrl = searchParams.get('callbackUrl')
+
+  const onClick = (provider: 'google' | 'github') => {
+    signIn(provider, {
+      callbackUrl: DEFAULT_LOGIN_REDIRECT,
+    })
+  }
+
+  return (
+    <div className='flex items-center w-full gap-x-2'>
+      <Button
+        size='lg'
+        className='w-full'
+        variant='outline'
+        onClick={() => onClick('google')}>
+        <FcGoogle className='h-5 w-5' />
+      </Button>
+      <Button
+        size='lg'
+        className='w-full'
+        variant='outline'
+        onClick={() => onClick('github')}>
+        <FaGithub className='h-5 w-5' />
+      </Button>
+    </div>
+  )
+}
+```
+
+- Test; Notice that e dont need to sign up , just login and user is created. So e dont need to go through th jt, and compare passords, nothing.
+- Notice we get an image now, and also mwe have an acoount, with more info such us provider, access token, etc.
+- Also notice that we need email verification, but it makes no sense to have that for the socials as they a;lreasy get email verification, unless we want to verify trhough our end too. why email verification is important? well we dont want to grant access to fake emails.
+- We can do that throught events as shwon in the next topic
+
+### Events
+
+- Evnet are asynchronous funtions that do not return a response, they are usefull for audit logs, resporting or handling any other side effects
+- `https://next-auth.js.org/v3/configuration/events`
+- go to auth.ts
+
+```ts
+} = NextAuth({
+  events: {
+    async linkAccount({ user }) {
+      await db.user.update({
+        where: { id: user.id },
+        data: { emailVerified: new Date() },
+      })
+    },
+  },
+  callbacks: {
+```
+
+- so basically what this one does is in singIn if with a socialProvider then it updates the db for us.
+  -,Another thign to keep in mind is that we didnt use the new authorized callback inthe auth.config (the replcaement for the old way or the way we are ding here) I like this approach better, i feel we have more control.
+- and finally these are very powerful funtion =s these vents ones, as they dont need to return anything.
+- Note: in the course, anotnio got an error when trying to log in with the same google acount once logged out. it get redirected to a nextauth signin page, i dont have that issue.
+- the way he fuxes that is: abouve events, add pages.
+
+```ts
+} = NextAuth({
+  pages: {
+    signIn: '/auth/login',
+    error: '/auth/error',
+  },
+  events: {
+```
+
+### AuthError Page
+
+-Because we added oir own redirect if sothing goes wron when signin in or out. lest add the auth error page
+
+```ts
+import { FaExclamationTriangle } from 'react-icons/fa'
+import { CardWrapper } from './CardWrapper'
+
+export default function ErrorCard() {
+  return (
+    <CardWrapper
+      headerLabel='Opps! Somehting went wrong'
+      backButtonLabel='Back to login'
+      backButtonHref='"/auth/login'>
+      <div className='w-full flex justify-center items-center'>
+        <FaExclamationTriangle className='text-destructive ' />
+      </div>
+    </CardWrapper>
+  )
+}
+```
+
+### Adding errorr mesage to social login
+
+```ts
+
+export const LoginForm = () => {
+  const searchParams = useSearchParams()
+  const urlError =
+    searchParams.get('error') === 'OAuthAccountNotLinked'
+      ? 'Another account already exists with the same e-mail address, maybe a cosial account withe same email':""
+
+
+  <FormError message={error || urlError} />
+
+```
+
+## VERIFICATION TOKEN
+
+- now lets add verification token to our system. we start by cearting a verificatioToken model in schema.prisma
+
+```ts
+  model VerificationToken {
+    id      String   @id @default(cuid())
+    email   String
+    token   String   @unique
+    expires DateTime
+
+    // and no need to create a relationwith the user, it can live on its own
+    //only one token for speceific email
+    @@unique([email, token])
+  }
+```
+
+- again generate and push
+
+### create verification token helper fnctions
+
+- Maybe in helpers/data/verificationToken.ts
+
+```ts
+import { db } from '@/lib/db'
+
+export async function getVerificationTokenByEmail(email: string) {
+  try {
+    const verificationToken = await db.verificationToken.findFirst({
+      where: { email },
+    })
+  } catch (error) {
+    null
+  }
+}
+
+export async function getVerificationTokenByToken(token: string) {
+  try {
+    const verificationToken = await db.verificationToken.findFirst({
+      where: { token },
+    })
+  } catch (error) {
+    null
+  }
+}
+```
+
+### Create a GenerateVerificationToken
+
+- `npm i npm i uuid@9.0.1` and `npm i --save-dev @types/uuid@9.0.7`
+- cerate a generateVerificationToken.ts file
+- this will be our helper or srver funtion? ... hm , i dont think this is secure lol, it should be in action.
+
+```ts
+import { v4 as uuidv4 } from 'uuid'
+import { getVerificationTokenByEmail } from './verificationToken'
+import { db } from '@/lib/db'
+
+export async function generateVerificationToken(email: string) {
+  const token = uuidv4()
+  // expires in one hour
+  const expires = new Date(new Date().getTime() + 3600 * 100)
+  // check if existingToken
+  const tokenExists = await getVerificationTokenByEmail(email)
+  if (tokenExists) {
+    const removeToken = await db.verificationToken.delete({
+      // we could also say:where:{email}
+      // bI think the logic is the same, maybe we must remove with an id, niot just anyother property. even if that other property is unique, like email is in this project.
+      where: { id: tokenExists.id },
+    })
+  }
+  const verificationToken = await db.verificationToken.create({
+    data: { email, token, expires },
+  })
+  return verificationToken
+}
+```
+
+### Using generationVerificationToken()
+
+- go to registerAction
+- Run the verificationToken funtion just before the return, or right after the user has been created.
+
+```ts
+const verificationToken = await generateVerificationToken(email)
+
+return {
+  success: 'User created successfully',
+}
+```
+
+- ok so token verificationtoken has been craeted, and then what?
+- ok, so it seesm that we have to somehow get the user to enter that verificationtoken when they try to log in, im guessing for the fist time.
+- so that means, we have to go back to the signIn callback adn add the logic back so that if the user is not verified then they cant access.
+- also it would be nice to redirec to login after registering
+- and then also a way to let users know they need to be veified
+- ok, now lets apply the same login in login action
+- but it seems confusing becuase the token is active for 1 hour, which means if they dont sign in within one hour of registration they can taccess, and thats all? i htough the idea was that they click on a li kk on thier email to verify it, maybe its coming later
+- ok, so the token gets created wehn trying to log in, but acees is not granted yet becase it hasnt been verified!
+- so we must send the token to their email and then get that token back
+- we have to do the same kind of thing in the auth.ts just to make sure
+  -Add a signIn callback for the verificationToken logic
+
+```ts
+ async signIn({ user, account }) {
+      // aloow OAuth witjhout email verification
+      //Althought I odnt think we need it, becasue if social an email will be verifoed one the spot
+      if (account?.provider !== 'credentials') return true
+      const existingUser = await getUserById(user.id)
+      //prevent signin without email verification
+      if (!existingUser || !existingUser.emailVerified) {
+        return false
+      }
+
+      return true
+    },
+```
+
+### send email to verify to veriryEmail with resend
+
+- `https://resend.com/`
+- create a resend API key
+- go to docs > next js quick start>
+- `npm i resend@2.1.0`
+- remeber that for production you need to verify your email to be able to send emails,. for now the onboring option is fine
+
+- creat a mail.ts file
+
+```ts
+import { Resend } from 'resend'
+
+const resend = new Resend(process.env.RESEND_API_KEY)
+
+export const sendVerificationEmail = async (email: string, token: string) => {
+  const confirmLink = `http://localhost:3000/auth/new-verification?token=${token}`
+  await resend.emails.send({
+    from: 'onboarding@resend.dev',
+    to: email,
+    subject: 'Confirm your email',
+    html: ` <p className=''>
+        <a href='${confirmLink}'>here</a> to confirm email.
+      </p>`,
+  })
+}
+```
+
+- Now lest go back to register to actually send the verification email
+
+```ts
+const verificationToken = await generateVerificationToken(email)
+
+await sendVerificationEmail(verificationToken.email, verificationToken.token)
+```
+
+- now do the same for the login
+
+## EMAIL VERIFICATION

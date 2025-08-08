@@ -5,6 +5,9 @@ import { RegisterSchema } from '@/schemas'
 import z from 'zod'
 import bcrypt from 'bcryptjs'
 import { getUserByEmail } from '@/helpers/user/getUserByEmail'
+import { _email } from 'zod/v4/core'
+import { generateVerificationToken } from '@/helpers/data/generateVerificationToken'
+import { sendVerificationEmail } from '@/helpers/mail/mail'
 
 export async function registerAction(values: z.infer<typeof RegisterSchema>) {
   const validatedValues = RegisterSchema.safeParse(values)
@@ -32,8 +35,12 @@ export async function registerAction(values: z.infer<typeof RegisterSchema>) {
   })
 
   if (!createUser) {
-    return { error: 'Unable to creat user' }
+    return { error: 'Unable to create user' }
   }
+
+  const verificationToken = await generateVerificationToken(email)
+
+  await sendVerificationEmail(verificationToken.email, verificationToken.token)
 
   return {
     success: 'User created successfully',

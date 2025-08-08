@@ -17,7 +17,7 @@ git push -u origin main
 git branch
 git checkout main
 git add .
-git commit -m "before auth splitting"
+git commit -m "before Credentails in auth.config"
 git push -u origin main
 ```
 
@@ -26,8 +26,8 @@ git push -u origin main
 - -donbt forget to puch to the new branch
 
 ```ts
-git checkout -b before-auth-splitting
-git push -u origin before-auth-splitting
+git checkout -b before-credentials-authConfig
+git push -u origin before-credentials-authConfig
 ```
 
 - Now swith to main and pull from github
