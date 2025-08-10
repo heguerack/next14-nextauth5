@@ -1,12 +1,19 @@
 'use server'
 
 import { signIn } from '@/auth'
+import { generateTwofactorToken } from '@/helpers/data/generateTwofactorToken'
 import { generateVerificationToken } from '@/helpers/data/generateVerificationToken'
-import { sendVerificationEmail } from '@/helpers/mail/mail'
+import { getTwoFactorTokenByEmail } from '@/helpers/data/getTwoFactorToken'
+import {
+  sendTwoFactorTokenEmail,
+  sendVerificationEmail,
+} from '@/helpers/mail/mail'
 import { getUserByEmail } from '@/helpers/user/getUserByEmail'
+import { db } from '@/lib/db'
 import { DEFAULT_LOGIN_REDIRECT } from '@/routes'
 import { LoginSchema } from '@/schemas'
 import { AuthError } from 'next-auth'
+import { redirect } from 'next/navigation'
 import z from 'zod'
 
 export async function loginAction(values: z.infer<typeof LoginSchema>) {
@@ -14,27 +21,81 @@ export async function loginAction(values: z.infer<typeof LoginSchema>) {
   if (!validatedValues.success) {
     return { error: 'Invalid Objects' }
   }
-  const { email, password } = validatedValues.data
+  const { email, password, code } = validatedValues.data
 
   const existingUser = await getUserByEmail(email)
+  if (!existingUser) {
+    return { error: 'Not user with that email' }
+  }
+
   if (!existingUser?.emailVerified) {
     const verificationToken = await generateVerificationToken(email)
     await sendVerificationEmail(
       verificationToken.email,
       verificationToken.token
     )
-
     return { success: 'confirmation email sent' }
+  }
+
+  // check first if a twoFactorToken has been generated and is attched to that email
+  const token = await getTwoFactorTokenByEmail(email)
+  console.log('generatedToken :', token)
+  console.log('code :', { code })
+
+  if (token) {
+    if (token.token !== code?.trim()) {
+      return { error: 'Tokens dontmatch!' }
+    }
+    //check if token is active
+    if (token.expires < new Date()) return { error: 'Code expired' }
+    // create TwofactorConfirmation in db
+    await db.TwoFactorConfirmation.create({
+      data: {
+        userId: existingUser.id,
+      },
+    })
+    // console.log('twofactorConfirmation created')
+    // deleting two factor token
+    await db.twoFactorToken.deleteMany({
+      where: { id: token.id },
+    })
+  }
+
+  // if user is enabled but not two factor confirmation in place
+  // so creat token and send email with token
+  //check exitning USing again as it ws probably updated
+  const checkExistingUser = await getUserByEmail(email)
+  if (!checkExistingUser) return { error: 'Not user with that email' }
+  if (
+    checkExistingUser.isTwoFactorEnabled &&
+    !checkExistingUser.TwoFactorConfirmation
+  ) {
+    console.log('existing user is two factor enabled')
+    console.log('existing user is not two factor confirmed')
+    console.log(
+      'checkingExistingUser.TwoFactorConfirmation :',
+      existingUser.TwoFactorConfirmation
+    )
+
+    const generateToken = await generateTwofactorToken(email)
+    await sendTwoFactorTokenEmail(email, generateToken.token)
+    console.log('sent email for two factor confirmation')
+    return {
+      success: 'Enter two factor code',
+    }
   }
 
   try {
     await signIn('credentials', {
       email,
       password,
-      redirectTo: DEFAULT_LOGIN_REDIRECT,
+      // redirectTo: DEFAULT_LOGIN_REDIRECT,
+      redirect: false,
     })
-
-    return { success: 'Use Logged in successfully' }
+    await db.TwoFactorConfirmation.deleteMany({
+      where: { userId: existingUser.id },
+    })
+    redirect(DEFAULT_LOGIN_REDIRECT)
   } catch (error) {
     if (error instanceof AuthError) {
       switch (error.type) {

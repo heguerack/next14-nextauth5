@@ -4,24 +4,14 @@ import { newVerificationTokenAction } from '@/actions/newVerificationTokenAction
 import { CardWrapper } from '@/components/auth/CardWrapper'
 import { FormError } from '@/components/form-error'
 import { FormSuccess } from '@/components/form-success'
-import { getVerificationTokenByToken } from '@/helpers/data/getVerificationToken'
-import { getUserByEmail } from '@/helpers/user/getUserByEmail'
-import { db } from '@/lib/db'
-import Link from 'next/link'
-import { redirect, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useState } from 'react'
 import { BeatLoader } from 'react-spinners'
-
-// type pagePros = {
-//   searchParams: { token?: string }
-// }
-// export default async function newVerificationPage({ searchParams }: pagePros) {
-// const paramToken = await searchParams.get("")
 
 export default function newVerificationPage() {
   const [error, setError] = useState<string | undefined>()
   const [success, setSuccess] = useState<string | undefined>()
-  const [myToken, setMyToken] = useState(false)
+
   const token = useSearchParams().get('token')
 
   // so basically this logic is as folows: on Submit run at the start due to useaEffect. on submit also runs if onSubmit changes. and onSubmit changes if the token changes
@@ -30,12 +20,11 @@ export default function newVerificationPage() {
       setError('Missing token')
       return
     }
-    if (myToken) return
+
     newVerificationTokenAction(token)
       .then((data) => {
         setSuccess(data.success)
         setError(data.error)
-        setMyToken(true)
       })
       .catch((error) => {
         setError('Somethig went wrong')

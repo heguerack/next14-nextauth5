@@ -2,8 +2,8 @@
 
 import * as z from 'zod'
 import { useForm } from 'react-hook-form'
-import { useState, useTransition } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useEffect, useState, useTransition } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { zodResolver } from '@hookform/resolvers/zod'
 import Link from 'next/link'
 
@@ -23,6 +23,7 @@ import { CardWrapper } from './CardWrapper'
 import { FormError } from '../form-error'
 import { FormSuccess } from '../form-success'
 import { loginAction } from '@/actions/loginAction'
+import { DEFAULT_LOGIN_REDIRECT } from '@/routes'
 
 export const LoginForm = () => {
   const searchParams = useSearchParams()
@@ -32,7 +33,7 @@ export const LoginForm = () => {
       : ''
   const emailVerified = searchParams.get('verifiedMessage')
 
-  // const [showTwoFactor, setShowTwoFactor] = useState(false)
+  const [showTwoFactor, setShowTwoFactor] = useState(false)
   const [error, setError] = useState<string | undefined>('')
   const [success, setSuccess] = useState<string | undefined>('')
   const [isPending, startTransition] = useTransition()
@@ -42,16 +43,25 @@ export const LoginForm = () => {
     defaultValues: {
       email: '',
       password: '',
+      code: '',
     },
   })
 
-  const onSubmit = async (values: z.infer<typeof LoginSchema>) => {
+  const onSubmit = (values: z.infer<typeof LoginSchema>) => {
     setError('')
     setSuccess('')
-    startTransition(async () => {
-      const res = await loginAction(values)
-      setError(res.error)
-      setSuccess(res.success)
+    startTransition(() => {
+      loginAction(values).then((res) => {
+        if (res?.error) {
+          setError(res.error)
+        }
+        if (res?.success) {
+          setSuccess(res.success)
+          if (res.success === 'Enter two factor code') {
+            setShowTwoFactor(true)
+          }
+        }
+      })
     })
   }
 
@@ -64,24 +74,25 @@ export const LoginForm = () => {
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-6'>
           <div className='space-y-4'>
-            {/* {showTwoFactor && ( */}
-            {/* <FormField
-              control={form.control}
-              name='code'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Two Factor Code</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      disabled={isPending}
-                      placeholder='123456'
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            /> */}
+            {showTwoFactor && (
+              <FormField
+                control={form.control}
+                name='code'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Two Factor Code</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        disabled={isPending}
+                        placeholder='123456'
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
 
             <>
               <FormField

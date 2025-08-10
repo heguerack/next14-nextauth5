@@ -2163,3 +2163,625 @@ useEffect(() => {
 - So i tried to have a state on the fistr run so that on the second run if would be denied if my state is tue, whci is with the first run
 
 ## PASSWORD RESET TOKEN
+
+- go to loging form
+- make sure you have this logic in place
+
+```ts
+<FormField
+    disabled={isPending}
+    control={form.control}
+    name='password'
+    render={({ field }) => (
+      <FormItem>
+        <FormLabel>Password</FormLabel>
+        <FormControl>
+          <Input
+            {...field}
+            disabled={isPending}
+            placeholder='******'
+            type='password'
+          />
+        </FormControl>
+        <Button
+          disabled={isPending}
+          size='sm'
+          variant='link'
+          asChild
+          className='px-0 font-normal'>
+          <Link href='/auth/reset'>Forgot password?</Link> // new
+        </Button>
+        <FormMessage />
+      </FormItem>
+```
+
+- make sure to also creat the `/auth/reset/page.tsx`
+
+```ts
+export default function resetPage() {
+  return <ResetForm />
+}
+```
+
+- make sure to creat the ReseTForm as well
+
+### Reset Form
+
+- copy and pasten the loginform
+- fix as required, like remove the cosial prop, remove seacrParams
+- Here is a clean copy; it seems we will do something similarmto that we did for the email verification. like if the person forget the password, we can reset the password by verifying the email, and granting permisson to change the passsword on a redirect page, from the front end just like we did with the email verification
+
+```ts
+'use client'
+
+import * as z from 'zod'
+import { useForm } from 'react-hook-form'
+import { useState, useTransition } from 'react'
+import { zodResolver } from '@hookform/resolvers/zod'
+import Link from 'next/link'
+
+import { LoginSchema } from '@/schemas'
+import { Input } from '@/components/ui/input'
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@/components/ui/form'
+
+import { Button } from '@/components/ui/button'
+import { CardWrapper } from './CardWrapper'
+import { FormError } from '../form-error'
+import { FormSuccess } from '../form-success'
+import { loginAction } from '@/actions/loginAction'
+
+export const ResetForm = () => {
+  // const [showTwoFactor, setShowTwoFactor] = useState(false)
+  const [success, setSuccess] = useState<string | undefined>('')
+  const [error, setError] = useState<string | undefined>('')
+  const [isPending, startTransition] = useTransition()
+
+  const form = useForm<z.infer<typeof LoginSchema>>({
+    resolver: zodResolver(LoginSchema),
+    defaultValues: {
+      email: '',
+    },
+  })
+
+  const onSubmit = async (values: z.infer<typeof LoginSchema>) => {
+    setError('')
+    setSuccess('')
+    startTransition(async () => {
+      const res = await loginAction(values)
+      setError(res.error)
+      setSuccess(res.success)
+    })
+  }
+
+  return (
+    <CardWrapper
+      headerLabel='Forgot your password?'
+      backButtonLabel='Back to login'
+      backButtonHref='/auth/login'
+      // showSocial
+    >
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-6'>
+          <div className='space-y-4'>
+            <>
+              <FormField
+                disabled={isPending}
+                control={form.control}
+                name='email'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Email</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        disabled={isPending}
+                        placeholder='john.doe@example.com'
+                        type='email'
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </>
+          </div>
+          <FormError message={error} />
+          <FormSuccess message={success} />
+
+          <Button disabled={isPending} type='submit' className='w-full'>
+            Login
+          </Button>
+        </form>
+      </Form>
+    </CardWrapper>
+  )
+}
+```
+
+- Create a reset schema
+
+```ts
+export const ResetSchema = z.object({
+  email: z.email({
+    message: 'Email is required',
+  }),
+})
+```
+
+- Add a PasswordResetToken model in schema.prisma
+
+```ts
+model PasswordResetToken {
+  id            String   @id @default(cuid())
+  email         String
+  passwordToken String   @unique
+  expires       DateTime
+
+  @@unique([email, passwordToken])
+```
+
+### password reset helper funtions
+
+- in helpers/data generatePasswordResetToken.ts and getPasswordResetToken.ts
+
+```ts
+import { db } from '@/lib/db'
+
+export async function getPasswordResetTokenByToken(token: string) {
+  try {
+    const passwordResetToken = await db.passwordResetToken.findUnique({
+      where: { passwordToken: token },
+    })
+    return passwordResetToken
+  } catch (error) {
+    null
+  }
+}
+
+export async function getPasswordResetTokenByEmail(email: string) {
+  try {
+    const passwordResetToken = await db.passwordResetToken.findFirst({
+      where: { email },
+    })
+    return passwordResetToken
+  } catch (error) {
+    null
+  }
+}
+```
+
+and
+
+```ts
+import { v4 as uuidv4 } from 'uuid'
+import { getVerificationTokenByEmail } from './getVerificationToken'
+import { db } from '@/lib/db'
+import { getPasswordResetTokenByEmail } from './getPasswordResetToken'
+export async function generatePasswordResetToken(email: string) {
+  const token = uuidv4()
+  // expires in one hour
+  const expires = new Date(new Date().getTime() + 3600 * 100)
+  // check if existingToken
+  const tokenExists = await getPasswordResetTokenByEmail(email)
+
+  if (tokenExists) {
+    const removeToken = await db.passwordResetToken.delete({
+      where: { id: tokenExists.id },
+    })
+  }
+
+  const passwordResetToken = await db.verificationToken.create({
+    data: { email, token, expires },
+  })
+  return passwordResetToken
+}
+```
+
+### create ResetPassword Email funtion
+
+```ts
+export const sendResetEmail = async (email: string, token: string) => {
+  console.log('email from sendResetEmail ', email)
+
+  const resetLink = `http://localhost:3000/auth/new-password?token=${token}`
+
+  const emailSent = await resend.emails.send({
+    from: 'onboarding@resend.dev',
+    to: email,
+    subject: 'Reset your password',
+    html: ` <p className=''>
+        <a href='${resetLink}'>here</a> to reset password.
+      </p>`,
+  })
+}
+```
+
+### Back to reset action
+
+```ts
+'use server'
+
+import { auth } from '@/auth'
+import { sendResetEmail } from '@/helpers/mail/mail'
+import { ResetSchema } from '@/schemas'
+import z from 'zod'
+import crypto from 'crypto'
+import { getUserByEmail } from '@/helpers/user/getUserByEmail'
+import { generatePasswordResetToken } from '@/helpers/data/generatePasswordResetToken'
+
+export async function resetAction(values: z.infer<typeof ResetSchema>) {
+  const validatedValues = ResetSchema.safeParse(values)
+  // console.log(validatedValues)
+
+  if (!validatedValues.success) {
+    return { error: 'Invalid Email' }
+  }
+  const email = validatedValues.data.email
+
+  const existingUser = await getUserByEmail(email)
+
+  if (!existingUser) {
+    return { error: 'Not email found to reset your password' }
+  }
+  const passwordResetToken = await generatePasswordResetToken(
+    validatedValues.data.email
+  )
+
+  const sendEmail = await sendResetEmail(
+    passwordResetToken.email,
+    passwordResetToken.passwordToken
+  )
+
+  return { success: 'we have sent the email to change password' }
+}
+```
+
+## NewPasswordForm and Action
+
+### NewPasswordForm
+
+```ts
+'use client'
+
+import * as z from 'zod'
+import { useForm } from 'react-hook-form'
+import { useEffect, useState, useTransition } from 'react'
+import { zodResolver } from '@hookform/resolvers/zod'
+
+import { NewPasswordSchema } from '@/schemas'
+import { Input } from '@/components/ui/input'
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@/components/ui/form'
+
+import { Button } from '@/components/ui/button'
+import { CardWrapper } from '@/components/auth/CardWrapper'
+import { FormError } from '@/components/form-error'
+import { FormSuccess } from '@/components/form-success'
+import { newPasswordAction } from '@/actions/newPasswordAction'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { getPasswordResetTokenByToken } from '@/helpers/data/getPasswordResetToken'
+
+export default function NewPasswordForm() {
+  const [success, setSuccess] = useState<string | undefined>('')
+  const [error, setError] = useState<string | undefined>('')
+  const [isPending, startTransition] = useTransition()
+
+  const router = useRouter()
+  const token = useSearchParams().get('token') ?? ''
+
+  const form = useForm<z.infer<typeof NewPasswordSchema>>({
+    resolver: zodResolver(NewPasswordSchema),
+    defaultValues: {
+      password: '',
+    },
+  })
+
+  const onSubmit = (values: z.infer<typeof NewPasswordSchema>) => {
+    console.log('Clicked submit')
+
+    setError('')
+    setSuccess('')
+    startTransition(() => {
+      newPasswordAction(values, token)
+        .then((res) => {
+          setError(res.error)
+          setSuccess(res.success)
+        })
+        .catch(() => {
+          setError('Something went wrong')
+        })
+    })
+  }
+
+  return (
+    <CardWrapper
+      headerLabel='Enter a new password?'
+      backButtonLabel='Back to login'
+      backButtonHref='/auth/login'
+      // showSocial
+    >
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-6'>
+          <div className='space-y-4'>
+            <>
+              <FormField
+                disabled={isPending}
+                control={form.control}
+                name='password'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>New Password</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        disabled={isPending}
+                        placeholder='Enter your new password'
+                        type='password'
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </>
+          </div>
+          <FormError message={error} />
+          <FormSuccess message={success} />
+
+          <Button disabled={isPending} type='submit' className='w-full'>
+            Reset password
+          </Button>
+        </form>
+      </Form>
+    </CardWrapper>
+  )
+}
+```
+
+### New Password Action
+
+```ts
+'use server'
+
+import { db } from '@/lib/db'
+import { NewPasswordSchema } from '@/schemas'
+import z from 'zod'
+import bcrypt from 'bcryptjs'
+import { getVerificationTokenByToken } from '@/helpers/data/getVerificationToken'
+import { getUserByEmail } from '@/helpers/user/getUserByEmail'
+
+export async function newPasswordAction(
+  values: z.infer<typeof NewPasswordSchema>,
+  token?: string
+) {
+  if (!token) return { error: 'Missing token at newPasswordAction!' }
+
+  const validatedValues = NewPasswordSchema.safeParse(values)
+  if (!validatedValues.success) {
+    return { error: 'Invalid Values' }
+  }
+
+  console.log(values.password, token)
+
+  //check if token exists
+  const existingToken = await getVerificationTokenByToken(token)
+  if (!existingToken) return { error: 'we coudlt find the token in database' }
+
+  // check if token has expired
+  const hasExpired = new Date(existingToken.expires) < new Date()
+  if (hasExpired) return { error: 'token has expired' }
+
+  // now check if user exist before trying to update
+  const existingUser = await getUserByEmail(existingToken.email)
+  if (!existingUser) return { error: 'User with that email does not exist' }
+
+  const passsword = validatedValues.data.password
+
+  const hashedPassword = await bcrypt.hash(passsword, 10)
+
+  await db.user.update({
+    where: { id: existingUser.id },
+    data: { password: hashedPassword },
+  })
+
+  // now lets delete the unused token
+  await db.passwordResetToken.delete({
+    where: { id: existingToken.id },
+  })
+
+  return { success: 'Password updated' }
+}
+```
+
+## TWO FACTOR AUTENTICATION
+
+- Go to prisma.schema
+
+```ts
+model TwoFactorToken {//new
+  id      String   @id @default(cuid())
+  email   String
+  token   String   @unique
+  expires DateTime
+
+  @@unique([email, token])
+}
+
+model TwoFactorConfirmation {//new
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId])
+}
+
+model User {
+  id                 String    @id @default(cuid())
+  name               String?
+  email              String?   @unique
+  password           String?
+  emailVerified      DateTime? @map("email_verified")
+  image              String?
+  role               UserRole  @default(USER)
+  accounts           Account[]
+  isTwoFactorEnabled Boolean   @default(false)//new
+
+  TwoFactorConfirmation TwoFactorConfirmation?//new
+}
+```
+
+### lLts Reset db
+
+- npx prisma generate
+- npx prisma migrate reset
+- npx prisma db push
+
+### Create twoFactorToken funtion helpers
+
+- GeneratTwoFactotoken.ts
+
+```ts
+import { v4 as uuidv4 } from 'uuid'
+import { db } from '@/lib/db'
+import crypto from 'crypto'
+import { getTwoFactorTokenByEmail } from './getTwoFactorToken'
+import { getUserByEmail } from '../user/getUserByEmail'
+
+export async function generateTwofactorToken(email: string) {
+  // const token = uuidv4()
+  // we wont use this one now, i guess its for ercurity purposes that we use crypto as it gives usa very stro code or passwrd
+
+  const token = crypto.randomInt(100_000, 1_000_000) // the _ just lets us read easily
+  //reduce to 15 minuts or so, after development
+  const expires = new Date(new Date().getTime() + 3600 * 100) // this will gives us a 6 digit code not getting into a million
+
+  // check if the twofactor token exists
+  const existingToken = await getTwoFactorTokenByEmail(email)
+
+  if (existingToken) {
+    await db.twoFactorToken.delete({
+      where: { id: existingToken.id },
+    })
+  }
+
+  //create token
+  const twofactorToken = await db.twoFactorToken.create({
+    data: { email, token: token.toString(), expires },
+  })
+}
+```
+
+- getTwoFactorToken.ts
+
+```ts
+import { db } from '@/lib/db'
+
+export async function getTwoFactorTokenByToken(token: string) {
+  try {
+    const twofatcorToken = await db.twoFactorToken.findUnique({
+      where: { token: token },
+    })
+    return twofatcorToken
+  } catch (error) {
+    null
+  }
+}
+
+export async function getTwoFactorTokenByEmail(email: string) {
+  try {
+    const twoFactorToken = await db.twoFactorToken.findFirst({
+      where: { email },
+    })
+    return twoFactorToken
+  } catch (error) {
+    null
+  }
+}
+```
+
+- getTwoFactorTokenConfirmation.ts
+
+```ts
+import { db } from '@/lib/db'
+
+export async function getTwoFactorTokenByToken(token: string) {
+  try {
+    const twofatcorToken = await db.twoFactorToken.findUnique({
+      where: { token: token },
+    })
+    return twofatcorToken
+  } catch (error) {
+    null
+  }
+}
+
+export async function getTwoFactorTokenByEmail(email: string) {
+  try {
+    const twoFactorToken = await db.twoFactorToken.findFirst({
+      where: { email },
+    })
+    return twoFactorToken
+  } catch (error) {
+    null
+  }
+}
+```
+
+### Create the sendTwoFactorTokenEmail Function
+
+```ts
+export const sendTwoFactorTokenEmail = async (email: string, token: string) => {
+  await resend.emails.send({
+    from: 'onboarding@resend.dev',
+    to: email,
+    subject: '2FA Code',
+    html: ` <p className=''>
+        This is your setet 2FA ${token}
+      </p>`,
+  })
+}
+```
+
+### Add TwoFacto Confirmation Logic to callbacks
+
+```ts
+ callbacks: {
+    // hover over session to see options
+    async signIn({ user, account }) {
+      // aloow OAuth witjhout email verification
+      //Althought I odnt think we need it, becasue if social an email will be verifoed one the spot
+      if (account?.provider !== 'credentials') return true
+      const existingUser = await getUserById(user.id)
+      //prevent signin without email verification
+      if (!existingUser || !existingUser.emailVerified) {
+        return false
+      }
+      // prevent sign in if twofactorAuthenticaton is enabled
+      if (existingUser.isTwoFactorEnabled) {
+        const twoFactorConfirmation = await getTwoFactorConfirmationByUserId(
+          existingUser.id
+        )
+        if (!twoFactorConfirmation) return false
+        //Delete twoFactor Confirmation for the next sign in
+        await db.twoFactorToken.delete({
+          where: { id: twoFactorConfirmation.id },
+        })
+      }
+      return true
+    },
+```
+
+- That logic was to lock the user out right from nextauth via callbacks, lets now go to the login action to apply somemlogic there

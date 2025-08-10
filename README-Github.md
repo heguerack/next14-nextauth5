@@ -17,7 +17,7 @@ git push -u origin main
 git branch
 git checkout main
 git add .
-git commit -m "Email verification, franks way"
+git commit -m "before password reset token"
 git push -u origin main
 ```
 
@@ -26,15 +26,15 @@ git push -u origin main
 - -donbt forget to puch to the new branch
 
 ```ts
-git checkout -b email-verification-franks-way
-git push -u origin email-verification-franks-way
+git checkout -b before-password-reset-token
+git push -u origin before-password-reset-token
 ```
 
 - Now swith to main and pull from github
 
 ```ts
 git checkout main
-git pull origin main// this is optional, just if someone else is working on it
+git pull origin main // this is optional, just if someone else is working on it
 ```
 
 ## Github branches lecture

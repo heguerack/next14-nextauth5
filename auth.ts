@@ -4,6 +4,7 @@ import { PrismaAdapter } from '@auth/prisma-adapter'
 import { db } from './lib/db'
 import { getUserById } from './helpers/user/getUserById'
 import { UserRole } from '@prisma/client'
+import { getTwoFactorConfirmationByUserId } from './helpers/data/getTwofactorConfirmation'
 
 // Brad placed this in a next-auth.d.ts file
 // flow used t inject values to types in nextauth
@@ -35,6 +36,28 @@ export const {
   },
   callbacks: {
     // hover over session to see options
+    async signIn({ user, account }) {
+      // aloow OAuth witjhout email verification
+      //Althought I odnt think we need it, becasue if social an email will be verifoed one the spot
+      if (account?.provider !== 'credentials') return true
+      const existingUser = await getUserById(user.id)
+      //prevent signin without email verification
+      if (!existingUser || !existingUser.emailVerified) {
+        return false
+      }
+      // prevent sign in if twofactorAuthenticaton is enabled
+      if (existingUser.isTwoFactorEnabled) {
+        const twoFactorConfirmation = await getTwoFactorConfirmationByUserId(
+          existingUser.id
+        )
+        if (!twoFactorConfirmation) return false
+        //Delete twoFactor Confirmation for the next sign in
+        // await db.twoFactorToken.delete({
+        //   where: { id: twoFactorConfirmation.id },
+        // })
+      }
+      return true
+    },
     async session({ token, session, user }) {
       // we must return session
       // console.log('session from callback session :', session)
@@ -44,8 +67,8 @@ export const {
       // }
       if (token.sub && session.user) {
         session.user.id = token.sub
-        console.log('sessionSession :', session)
-        console.log('sessionToken :', token)
+        // console.log('sessionSession :', session)
+        // console.log('sessionToken :', token)
       }
       if (token.userRole && session.user) {
         session.user.role = token.userRole as UserRole
@@ -55,7 +78,7 @@ export const {
     },
     // hover over jwt for options
     async jwt({ token }) {
-      console.log('jwt token :', token)
+      // console.log('jwt token :', token)
 
       // we must return token
       // token.customField = 'test'
@@ -66,18 +89,6 @@ export const {
       if (!user) return token
       token.userRole = user?.role
       return token
-    },
-    async signIn({ user, account }) {
-      // aloow OAuth witjhout email verification
-      //Althought I odnt think we need it, becasue if social an email will be verifoed one the spot
-      if (account?.provider !== 'credentials') return true
-      const existingUser = await getUserById(user.id)
-      //prevent signin without email verification
-      if (!existingUser || !existingUser.emailVerified) {
-        return false
-      }
-
-      return true
     },
   },
   adapter: PrismaAdapter(db),
