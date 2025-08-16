@@ -8,6 +8,7 @@ import z from 'zod'
 import bcrypt from 'bcryptjs'
 import { generateVerificationToken } from '@/helpers/data/generateVerificationToken'
 import { sendVerificationEmail } from '@/helpers/mail/mail'
+import { revalidatePath } from 'next/cache'
 
 export async function settingsAction(values: z.infer<typeof SettingsSchema>) {
   const validatedValues = SettingsSchema.safeParse(values)
@@ -86,6 +87,6 @@ export async function settingsAction(values: z.infer<typeof SettingsSchema>) {
         hashedNewPassword === null ? dbUser.password : hashedNewPassword,
     },
   })
-
+  revalidatePath('/admin')
   return { success: 'Settings Updated!' }
 }

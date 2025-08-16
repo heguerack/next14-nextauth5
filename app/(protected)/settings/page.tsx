@@ -36,7 +36,6 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { UserRole } from '@prisma/client'
-import { useRouter } from 'next/router'
 
 export default function settingsPage() {
   const [error, setError] = useState<string | undefined>('')
@@ -61,6 +60,16 @@ export default function settingsPage() {
           }
           if (res.success) {
             update()
+              .then((mango) => {
+                if (mango) {
+                  console.log(mango.user)
+                } else {
+                  console.log('No mango error')
+                }
+              })
+              .catch((mangoError) => {
+                console.log(mangoError)
+              })
             setSuccess(res.success)
           }
         })

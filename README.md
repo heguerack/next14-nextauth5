@@ -4173,3 +4173,7 @@ module.exports = nextConfig
   "postinstall": "prisma generate" //new
 }
 ```
+
+## Sucess!!!
+
+- actually not really, im stil trying to ctch a bug that doesnt let me see Admin when on admin.
