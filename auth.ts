@@ -6,7 +6,6 @@ import { getUserById } from './helpers/user/getUserById'
 import { UserRole } from '@prisma/client'
 import { getTwoFactorConfirmationByUserId } from './helpers/data/getTwofactorConfirmation'
 import { accountsActions } from './actions/accountsActions'
-import { redirect } from 'next/navigation'
 
 export const {
   handlers: { GET, POST },
@@ -32,7 +31,7 @@ export const {
       // aloow OAuth witjhout email verification
       //Althought I odnt think we need it, becasue if social an email will be verifoed one the spot
       if (account?.provider !== 'credentials') return true
-      const existingUser = await getUserById(user.id)
+      const existingUser = await getUserById(user.id as string)
       //prevent signin without email verification
       if (!existingUser || !existingUser.emailVerified) {
         return false
@@ -64,7 +63,7 @@ export const {
         // const user = await getUserById(session.user.id)
         session.user.isTwoFactorEnabled = token.isTwoFactorEnabled as boolean
         session.user.name = token.name
-        session.user.email = token.email
+        session.user.email = token.email as string
         session.user.isOAuth = token.isOAuth as boolean
       }
 

@@ -57,7 +57,7 @@ export async function loginAction(
     //check if token is active
     if (token.expires < new Date()) return { error: 'Code expired' }
     // create TwofactorConfirmation in db
-    await db.TwoFactorConfirmation.create({
+    await db.twoFactorConfirmation.create({
       data: {
         userId: existingUser.id,
       },
@@ -75,13 +75,13 @@ export async function loginAction(
   if (!checkExistingUser) return { error: 'Not user with that email' }
   if (
     checkExistingUser.isTwoFactorEnabled &&
-    !checkExistingUser.TwoFactorConfirmation
+    !checkExistingUser.twoFactorConfirmation
   ) {
     console.log('existing user is two factor enabled')
     console.log('existing user is not two factor confirmed')
     console.log(
       'checkingExistingUser.TwoFactorConfirmation :',
-      existingUser.TwoFactorConfirmation
+      existingUser.twoFactorConfirmation
     )
 
     const generateToken = await generateTwofactorToken(email)
@@ -103,7 +103,7 @@ export async function loginAction(
       password,
       // redirectTo: newCallbackUrl || DEFAULT_LOGIN_REDIRECT,
     })
-    await db.TwoFactorConfirmation.deleteMany({
+    await db.twoFactorConfirmation.deleteMany({
       where: { userId: existingUser.id },
     })
     redirect(newCallbackUrl ? newCallbackUrl : DEFAULT_LOGIN_REDIRECT)
