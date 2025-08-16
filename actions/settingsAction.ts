@@ -22,7 +22,7 @@ export async function settingsAction(values: z.infer<typeof SettingsSchema>) {
     return { error: 'Unauthorized' }
   }
   // is this becasue we can have an user in a session but posibly in db?
-  const dbUser = await getUserById(user.id)
+  const dbUser = await getUserById(user.id as string)
   console.log('dbUser :', dbUser)
   if (!dbUser) {
     return { error: 'Unauthorized' }
