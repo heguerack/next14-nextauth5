@@ -17,7 +17,7 @@ git push -u origin main
 git branch
 git checkout main
 git add .
-git commit -m "fix bug/type on generatetwoFactorToken action"
+git commit -m "fix bug/type on generatetwoFactorToken action try 2"
 git push -u origin main
 ```
 
