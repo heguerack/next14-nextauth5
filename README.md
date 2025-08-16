@@ -4158,3 +4158,18 @@ module.exports = nextConfig
 - , seems like we have a weird lood or classs in logic and we dotn get theemail confirmation
 - like its bypassed, it was working fine but i might disturbed that when fixing soemthing else. lets check!
 - ok, everything is fine!! it seems like ti was the react rerender that was couing issues as all good now!!
+
+## Deployment
+
+- fix a few type bug after build,
+- added this to script, for prisma stuff, from build error log I got this error.
+- here is the solution
+
+```ts
+"scripts": {
+  "dev": "next dev",
+  "build": "next build",
+  "start": "next start",
+  "postinstall": "prisma generate" //new
+}
+```
