@@ -17,7 +17,7 @@ git push -u origin main
 git branch
 git checkout main
 git add .
-git commit -m "before password reset token"
+git commit -m "Added search techs feature"
 git push -u origin main
 ```
 
@@ -26,8 +26,8 @@ git push -u origin main
 - -donbt forget to puch to the new branch
 
 ```ts
-git checkout -b before-password-reset-token
-git push -u origin before-password-reset-token
+git checkout -b added-search-techs-feature
+git push -u origin added-search-techs-feature
 ```
 
 - Now swith to main and pull from github

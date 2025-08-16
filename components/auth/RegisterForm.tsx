@@ -23,6 +23,7 @@ import { CardWrapper } from './CardWrapper'
 import { FormError } from '../form-error'
 import { FormSuccess } from '../form-success'
 import { registerAction } from '@/actions/registerAction'
+import { useRouter } from 'next/navigation'
 
 export const RegisterForm = () => {
   const searchParams = useSearchParams()
@@ -42,16 +43,22 @@ export const RegisterForm = () => {
     },
   })
 
+  const router = useRouter()
   const onSubmit = async (values: z.infer<typeof RegisterSchema>) => {
     setError('')
     setSuccess('')
-    startTransition(async () => {
-      const res = await registerAction(values)
-      setError(res.error)
-      setSuccess(res.success)
+    startTransition(() => {
+      registerAction(values).then((res) => {
+        if (res?.error) {
+          setError(res.error)
+        }
+        if (res?.success) {
+          setSuccess(res.success)
+          router.push('/login')
+        }
+      })
     })
   }
-
   return (
     <CardWrapper
       headerLabel='Create an account'

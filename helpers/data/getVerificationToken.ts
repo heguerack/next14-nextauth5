@@ -12,13 +12,13 @@ export async function getVerificationTokenByEmail(email: string) {
 }
 
 export async function getVerificationTokenByToken(token: string) {
-  console.log('getTokenByToken:', token)
+  // console.log('getTokenByToken:', token)
 
   try {
     const verificationToken = await db.verificationToken.findFirst({
       where: { token },
     })
-    console.log('foundTokenByToken:', verificationToken)
+    // console.log('foundTokenByToken:', verificationToken)
     return verificationToken
   } catch (error) {
     null

@@ -36,4 +36,6 @@ export const sendTwoFactorTokenEmail = async (email: string, token: string) => {
         This is your setet 2FA ${token}
       </p>`,
   })
+
+  console.log(`email for 2FA sent to${email}`)
 }

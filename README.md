@@ -2776,12 +2776,1385 @@ export const sendTwoFactorTokenEmail = async (email: string, token: string) => {
         )
         if (!twoFactorConfirmation) return false
         //Delete twoFactor Confirmation for the next sign in
-        await db.twoFactorToken.delete({
-          where: { id: twoFactorConfirmation.id },
-        })
+        //had to remove this cuz it was clashing with my own logic for the 2FA
+        // await db.twoFactorToken.delete({
+        //   where: { id: twoFactorConfirmation.id },
+        // })
       }
       return true
     },
 ```
 
 - That logic was to lock the user out right from nextauth via callbacks, lets now go to the login action to apply somemlogic there
+
+### twoFactor logic
+
+- in LoginForm
+
+```ts
+const [showTwoFactor, setShowTwoFactor] = useState(false)
+
+const onSubmit = (values: z.infer<typeof LoginSchema>) => {
+  setError('')
+  setSuccess('')
+  startTransition(() => {
+    loginAction(values).then((res) => {
+      if (res?.error) {
+        setError(res.error)
+      }
+      if (res?.success) {
+        setSuccess(res.success)
+        if (res.success === 'Enter two factor code') {//new
+          setShowTwoFactor(true)//new
+        }
+      }
+    })
+  })
+}
+return (
+  <CardWrapper
+    headerLabel='Welcome back'
+    backButtonLabel="Don't have an account?"
+    backButtonHref='/auth/register'
+    showSocial>
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className='space-y-6'>
+        <div className='space-y-4'>
+          {showTwoFactor && (//new
+            <FormField //new
+              control={form.control}
+              name='code'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Two Factor Code</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      disabled={isPending}
+                      placeholder='123456'
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+
+```
+
+- Back to login
+
+```ts
+'use server'
+
+import { signIn } from '@/auth'
+import { generateTwofactorToken } from '@/helpers/data/generateTwofactorToken'
+import { generateVerificationToken } from '@/helpers/data/generateVerificationToken'
+import { getTwoFactorTokenByEmail } from '@/helpers/data/getTwoFactorToken'
+import {
+  sendTwoFactorTokenEmail,
+  sendVerificationEmail,
+} from '@/helpers/mail/mail'
+import { getUserByEmail } from '@/helpers/user/getUserByEmail'
+import { db } from '@/lib/db'
+import { DEFAULT_LOGIN_REDIRECT } from '@/routes'
+import { LoginSchema } from '@/schemas'
+import { AuthError } from 'next-auth'
+import { redirect } from 'next/navigation'
+import z from 'zod'
+
+export async function loginAction(values: z.infer<typeof LoginSchema>) {
+  const validatedValues = LoginSchema.safeParse(values)
+  if (!validatedValues.success) {
+    return { error: 'Invalid Objects' }
+  }
+  const { email, password, code } = validatedValues.data
+
+  const existingUser = await getUserByEmail(email)
+  if (!existingUser) {
+    return { error: 'Not user with that email' }
+  }
+
+  if (!existingUser?.emailVerified) {
+    const verificationToken = await generateVerificationToken(email)
+    await sendVerificationEmail(
+      verificationToken.email,
+      verificationToken.token
+    )
+    return { success: 'confirmation email sent' }
+  }
+
+  // check first if a twoFactorToken has been generated and is attched to that email
+  const token = await getTwoFactorTokenByEmail(email) //new
+  console.log('generatedToken :', token)
+  console.log('code :', { code })
+
+  if (token) {
+    //new
+    if (token.token !== code?.trim()) {
+      return { error: 'Tokens dontmatch!' }
+    }
+    //check if token is active
+    if (token.expires < new Date()) return { error: 'Code expired' }
+    // create TwofactorConfirmation in db
+    await db.TwoFactorConfirmation.create({
+      data: {
+        userId: existingUser.id,
+      },
+    })
+    // console.log('twofactorConfirmation created')
+    // deleting two factor token
+    await db.twoFactorToken.deleteMany({
+      where: { id: token.id },
+    })
+  }
+
+  // if user is enabled but not two factor confirmation in place
+  // so creat token and send email with token
+  //check exitning USing again as it ws probably updated
+  const checkExistingUser = await getUserByEmail(email)
+  if (!checkExistingUser) return { error: 'Not user with that email' } //new
+  if (
+    checkExistingUser.isTwoFactorEnabled &&
+    !checkExistingUser.TwoFactorConfirmation
+  ) {
+    console.log('existing user is two factor enabled')
+    console.log('existing user is not two factor confirmed')
+    console.log(
+      'checkingExistingUser.TwoFactorConfirmation :',
+      existingUser.TwoFactorConfirmation
+    )
+
+    const generateToken = await generateTwofactorToken(email)
+    await sendTwoFactorTokenEmail(email, generateToken.token)
+    console.log('sent email for two factor confirmation')
+    return {
+      success: 'Enter two factor code',
+    }
+  }
+
+  try {
+    await signIn('credentials', {
+      email,
+      password,
+      // redirectTo: DEFAULT_LOGIN_REDIRECT,
+      redirect: false,
+    })
+    await db.TwoFactorConfirmation.deleteMany({
+      //new
+      where: { userId: existingUser.id },
+    })
+    redirect(DEFAULT_LOGIN_REDIRECT) //new
+  } catch (error) {
+    if (error instanceof AuthError) {
+      switch (error.type) {
+        case 'CredentialsSignin':
+          return { error: 'Invalid Credentails!' }
+        default:
+          return { error: error.type }
+      }
+    }
+    // we just have to thwo this error, nextjsn requires it, not sure why
+    throw error
+  }
+}
+```
+
+## USER BUTTONS AND HOOKS
+
+- So right now we can logout from settings by calling or awaiting signout, but what if that was a client component? but what if we need client logic?
+- create a SessionProvider and add it to a layout, depending on logic. we will do in (protected)
+
+### Auth client
+
+```ts
+import type { Metadata } from 'next'
+import { Inter } from 'next/font/google'
+import './globals.css'
+import { auth } from '@/auth'
+import { SessionProvider } from 'next-auth/react'
+
+const inter = Inter({ subsets: ['latin'] })
+
+export const metadata: Metadata = {
+  title: 'Create Next App',
+  description: 'Generated by create next app',
+}
+
+export default async function RootLayout({
+  //new
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  const session = await auth()
+  return (
+    <SessionProvider session={session}>
+      <html lang='en'>
+        <body className={inter.className}>{children}</body>
+      </html>
+    </SessionProvider>
+  )
+}
+```
+
+```ts
+'use client'
+
+import { auth, signOut } from '@/auth'
+import { useSession } from 'next-auth/react'
+
+// export default async function page() {
+export default function page() {
+  // const session = await auth()
+  const session = useSession()
+
+  return (
+    <div>
+      {JSON.stringify(session)}
+      <form
+      // action={async () => {
+      //   'use server'
+      //   await signOut()
+      // }}
+      >
+        <button>Sign out</button>
+      </form>
+    </div>
+  )
+}
+```
+
+- page
+
+```ts
+  'use client'
+
+// import { auth, signOut } from '@/auth'
+import { signOut, useSession } from 'next-auth/react'
+
+// export default async function page() {
+export default function page() {
+// const session = await auth()
+const session = useSession()
+
+return (
+
+<div>
+{JSON.stringify(session)}
+{/_ <form
+action={async () => {
+'use server'
+await signOut()
+}} > _/}
+<button onClick={() => signOut()}>Sign out</button>
+{/_ </form> _/}
+</div>
+)
+}
+```
+
+- We could also creat a action to sign out, that would beb server but can be called from any cleint component. We would do this if we wanrt some server logic to be done prior to loggin out
+- - now pay attention t the session from useSession. for us to get the user we have to go session.data.user, so it miught be become annoying.
+- Lets creat a hook for that then!
+
+```ts
+import { useSession } from 'next-auth/react'
+
+export async function useGetCurrentUser() {
+  const session = useSession()
+  const user = session?.data?.user
+  if (!user) return { error: 'User not found' }
+  return user
+}
+```
+
+### Protected Routes Layout
+
+```ts
+import ProtectedNavbar from './ProtectedNavbar'
+
+export default function protectedLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  return (
+    <div className='h-full w-full flex flex-col gap-y-10 items-center justify-center bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-sky-400 to-blue-800'>
+      <ProtectedNavbar />
+      {children}
+    </div>
+  )
+}
+```
+
+### ProtectedNavbar component
+
+```ts
+'use client'
+
+import { Button } from '@/components/ui/button'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+
+export default function ProtectedNavbar() {
+  const pathname = usePathname()
+  return (
+    <nav className='bg-secondary flex justify-between items-center p-4 rounded-xl w-[600px] shadow-sm'>
+      <div className='flex gap-x-2'>
+        <Button
+          asChild
+          variant={pathname === '/client' ? 'default' : 'outline'}>
+          <Link href={'/client'}>Client</Link>
+        </Button>
+        <Button
+          asChild
+          variant={pathname === '/server' ? 'default' : 'outline'}>
+          <Link href={'/server'}>Server</Link>
+        </Button>
+        <Button asChild variant={pathname === '/admin' ? 'default' : 'outline'}>
+          <Link href={'/admin'}>Admin</Link>
+        </Button>
+        <Button
+          asChild
+          variant={pathname === '/settings' ? 'default' : 'outline'}>
+          <Link href={'/settings'}>Settings</Link>
+        </Button>
+        <Button asChild variant={pathname === '/admin' ? 'default' : 'outline'}>
+          <Link href={'/admin'}>Admin</Link>
+        </Button>
+      </div>
+      <p className=''>User Button</p>
+    </nav>
+  )
+}
+```
+
+### Reusable Logout Buttton
+
+- `components/auth/LogoutButton.tsx`
+
+```ts
+'use client'
+
+import { useRouter } from 'next/navigation'
+
+import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog'
+import { signOut } from 'next-auth/react'
+import { logoutAction } from '@/actions/logoutAction'
+// import { LoginForm } from "@/components/auth/login-form";
+
+interface LoginButtonProps {
+  children: React.ReactNode
+  mode?: 'modal' | 'redirect'
+  asChild?: boolean
+}
+
+export const LogoutButton = ({
+  children,
+  mode = 'redirect',
+  asChild,
+}: LoginButtonProps) => {
+  const router = useRouter()
+
+  const onClick = async () => {
+    await logoutAction()
+  }
+
+  return (
+    <span onClick={onClick} className='cursor-pointer'>
+      {children}
+    </span>
+  )
+}
+```
+
+### UserButton.tsx
+
+```ts
+'use client'
+
+import { FaUser } from 'react-icons/fa'
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../ui/dropdown-menu'
+import { useGetCurrentUser } from '@/hooks/useGetCurrentUser'
+import { LogoutButton } from './LogoutButton'
+import { EqualApproximatelyIcon, LogOutIcon } from 'lucide-react'
+import { FcLeave } from 'react-icons/fc'
+
+export default function UserButton() {
+  const user = useGetCurrentUser()
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger>
+        <Avatar>
+          <AvatarImage src={user?.image || ''} />
+          <AvatarFallback className='bg-blue-500'>
+            <FaUser className='text-white' />
+          </AvatarFallback>
+        </Avatar>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent className='w-40' align='end'>
+        <LogoutButton>
+          <DropdownMenuItem>
+            <LogOutIcon /> Logout
+          </DropdownMenuItem>
+        </LogoutButton>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+```
+
+## SERVER AND CLIENT EXAMPLE
+
+-create a userInfoComponet, which we will use in server or cleitn compnent, wo it wil, behave like both of them. we willsee
+
+### UserInfo.tsx
+
+```ts
+import NextAuth, { type DefaultSession } from 'next-auth'
+import { Card, CardContent, CardHeader } from '../ui/card'
+
+// so basically this is a way to etnd our types, i guess we could have extended the  zodschemas too. many ways of doing things seem like.
+interface UserInfoProps {
+  user?: DefaultSession['user'] & {
+    role: 'ADMIN' | 'USER'
+    // isTwoFactorEnabled: boolean
+  }
+
+  label: string
+}
+
+export default function UserInfo({ user, label }: UserInfoProps) {
+  return (
+    <Card>
+      <CardHeader>
+        <p className='text-2xl font-semibold tect-center'>{label}</p>
+      </CardHeader>
+      <CardContent className='space-y-4'>
+        <div className='flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm'>
+          <p className='text-sm font-medium'>ID</p>
+          <p className='truncate text-xs max-w-[180px] font-mono p-1 bg-slate-100 rounded-md '>
+            {user?.id}
+          </p>
+        </div>
+        <div className='flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm'>
+          <p className='text-sm font-medium'>Name</p>
+          <p className='truncate text-xs max-w-[180px] font-mono p-1 bg-slate-100 rounded-md '>
+            {user?.name}
+          </p>
+        </div>
+        <div className='flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm'>
+          <p className='text-sm font-medium'>Email</p>
+          <p className='truncate text-xs max-w-[180px] font-mono p-1 bg-slate-100 rounded-md '>
+            {user?.email}
+          </p>
+        </div>
+        <div className='flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm'>
+          <p className='text-sm font-medium'>Role</p>
+          <p className='truncate text-xs max-w-[180px] font-mono p-1 bg-slate-100 rounded-md '>
+            {user?.role}
+          </p>
+        </div>
+        <div className='flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm'>
+          <p className='text-sm font-medium'>TFA</p>
+          <p className='truncate text-xs max-w-[180px] font-mono p-1 bg-slate-100 rounded-md '>
+            {/* {user?.isTwoFactorEnabled} */}
+          </p>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+```
+
+### Server Page
+
+```ts
+import UserInfo from '@/components/auth/UserInfo'
+import { currentUser } from '@/helpers/user/currentUser'
+
+export default async function page() {
+  const user = await currentUser()
+  return <UserInfo user={user} label='' />
+}
+```
+
+### Lets not forget to add the TFA (on/off) to the session and token
+
+- in auth.ts
+
+```ts
+declare module 'next-auth' {
+  interface Session {
+    user: DefaultSession['user'] & {
+      role: 'ADMIN' | 'USER'
+      isTwoFactorEnabled: boolean
+    }
+  }
+
+  async jwt({ token }) {...
+  token.isTwoFactorEnabled = user.isTwoFactorEnabled
+
+  async session({ token, session,  }) {...
+   if (session.user) {
+        session.user.isTwoFactorEnabled = token.isTwoFactorEnabled as boolean
+      }
+}
+```
+
+- Go back and modify the UserInfo.tsx
+
+```ts
+<Badge variant={user?.isTwoFactorEnabled ? 'success' : 'destructive'}>
+  {user?.isTwoFactorEnabled ? 'ON' : 'OFF'}
+</Badge>
+```
+
+### Client Page
+
+- notice that we replced the way we fetch the user, and casically thast it!
+
+```ts
+'use client'
+
+import UserInfo from '@/components/auth/UserInfo'
+import { useGetCurrentUser } from '@/hooks/useGetCurrentUser'
+
+export default function clientPage() {
+  const user = useGetCurrentUser()
+
+  return <UserInfo user={user} label='Client Componet' />
+}
+```
+
+## ADMID PAGE EXAMPLE
+
+- lets creat a quick hook for grabing the role
+
+```ts
+import { useSession } from 'next-auth/react'
+
+export async function useCurrentRole() {
+  const sesssion = useSession()
+  return sesssion?.data?.user?.role
+}
+```
+
+- buit lets also creat a helper in case its a server componet
+
+```ts
+import { auth } from '@/auth'
+
+export async function currentUser() {
+  const session = await auth()
+  return session?.user?.role
+}
+```
+
+- Back to admin page
+- But tlets first creat a RoleGate.tsx
+
+### RoleGate.tsx
+
+```ts
+'use client'
+
+import { useCurrentRole } from '@/hooks/useCurrentRole'
+import { UserRole } from '@prisma/client'
+import { FormError } from '../form-error'
+
+interface RoleGateProps {
+  children: React.ReactNode
+  allowedRole: UserRole
+}
+
+export default function RoleGate({ children, allowedRole }: RoleGateProps) {
+  const role = useCurrentRole()
+  if (role !== allowedRole) {
+    return (
+      <FormError message='You do not have permission to view this content!' />
+    )
+  }
+  return <>{children}</>
+}
+```
+
+### BAck To admin page
+
+```ts
+'use client'
+
+import RoleGate from '@/components/auth/RoleGate'
+import { FormSuccess } from '@/components/form-success'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { useCurrentRole } from '@/hooks/useCurrentRole'
+import { UserRole } from '@prisma/client'
+
+export default function page() {
+  return (
+    <Card className='w-[600px]'>
+      <CardHeader>
+        <p className='text-2xl font-semibold text-center '>🔑 Admin</p>
+      </CardHeader>
+      <CardContent className='space-y-4'>
+        <RoleGate allowedRole={UserRole.ADMIN}>
+          <FormSuccess message='you are allowed to see this content!' />
+        </RoleGate>
+      </CardContent>
+    </Card>
+  )
+}
+```
+
+### Server Action and API Examples
+
+```ts
+import { currentRole } from '@/helpers/user/currentRole'
+import { UserRole } from '@prisma/client'
+import { NextResponse } from 'next/server'
+
+export async function GET() {
+  const role = await currentRole()
+  if (role === UserRole.ADMIN) {
+    return new NextResponse(null, { status: 200 })
+  }
+  return new NextResponse(null, { status: 403 })
+}
+```
+
+- consummed in admin page
+
+```ts
+const onApiClick = () => {
+  fetch('/api/admin').then((res) => {
+    if (res.ok) {
+      console.log('response is ok')
+    } else {
+      console.error('FORBIDDEN')
+    }
+  })
+}
+```
+
+## SETTINGS
+
+### settingsAction
+
+```ts
+'use server'
+
+import { currentUser } from '@/helpers/user/currentUser'
+import { getUserById } from '@/helpers/user/getUserById'
+import { db } from '@/lib/db'
+import { SettingsSchema } from '@/schemas'
+import z from 'zod'
+
+export async function settingsAction(values: z.infer<typeof SettingsSchema>) {
+  const user = await currentUser()
+  if (!user) {
+    return { error: 'Unauthorized' }
+  }
+  // is this becasue we can have an user in a session but posibly in db?
+  const dbUser = await getUserById(user.id)
+  if (!dbUser) {
+    return { error: 'Unauthorized' }
+  }
+  await db.user.update({
+    where: { id: dbUser.id },
+    data: {
+      ...values,
+    },
+  })
+  return { success: 'Settings Updated!' }
+}
+```
+
+### Setting page
+
+- As a test we can start with psssing a hardocde value to cahnge, like name
+- I ytested the following code, it workds fine.
+
+```ts
+'use client'
+
+import { settingsAction } from '@/actions/settingsAction'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { useGetCurrentUser } from '@/hooks/useGetCurrentUser'
+import { Settings } from 'lucide-react'
+import { startTransition, useTransition } from 'react'
+
+export default function settingsPage() {
+  const [isPending, startTransition] = useTransition()
+  const onclick = () => {
+    startTransition(() => {
+      settingsAction({
+        name: 'Frankitoj',
+      })
+    })
+  }
+  return (
+    <Card className='w-[600px]'>
+      <CardHeader>
+        <p className='text-2xl font-semibold text-center flex items-center justify-center gap-4'>
+          <Settings />
+          Settings
+        </p>
+      </CardHeader>
+      <CardContent>
+        <Button onClick={onclick} disabled={isPending}>
+          {isPending ? 'updating...' : 'Update name'}
+        </Button>
+      </CardContent>
+    </Card>
+  )
+}
+```
+
+### Updating session after chenges in settings page
+
+- but here is the deal, it does not udate what see see in the other routes, as they dond have the fresh data yet.
+- So that means we have to change the session! yes, everytime we update fileds that are in the session!!
+- We have teo options to update the session this way. for instance in a client component , we can bring useSession()
+- So we are manually updating the session
+
+```ts
+export default function settingsPage() {
+  const {update,data,status}= useSession()
+  const [isPending, startTransition] = useTransition()
+  const onclick = () => {
+    startTransition(() => {
+      settingsAction({
+        name: 'Frankitoj',
+      })
+    }).then(()=>{
+      update()
+    })
+  }
+
+```
+
+- So long soty short, even if we revalidate those paths, they are taking the name and data to display from the user that is in session, so even if we bring new data, it wont reflec in our session, whic is why we have to manually. remeber at the beggining we attched role, ans isTwofactorAuthenticated, cuz we weanted to play with htose, now the same thing for name, email, and any other fiel we want updated.
+
+```ts
+async session({ token, session }) {
+      if (token.sub && session.user) {
+        session.user.id = token.sub
+        // console.log('sessionSession :', session)
+        // console.log('sessionToken :', token)
+      }
+      if (token.userRole && session.user) {
+        session.user.role = token.userRole as UserRole
+      }
+      if (session.user) {
+        // seems like i odnt need to reply in adding stuff to the token, i an just bring it here via actions!
+        // const user = await getUserById(session.user.id)
+        session.user.isTwoFactorEnabled = token.isTwoFactorEnabled as boolean
+        session.user.name = token.name
+        session.user.email = token.email
+      }
+      // console.log('sessionAuth :', session)
+      // console.log('sessionAuthUser :', session.user)
+
+      return session
+    },
+    // hover over jwt for options
+    async jwt({ token }) {
+      console.log('Im being called again')
+
+      // console.log('jwt token :', token)
+      // we must return token
+      if (!token.sub) return token
+      const user = await getUserById(token.sub as string)
+
+      if (!user) return token
+      token.email = user.email
+      token.name = user.name
+      token.userRole = user.role
+      token.isTwoFactorEnabled = user.isTwoFactorEnabled
+      return token
+    },
+```
+
+### AccountsAction- to with accouts (Social)
+
+- We cant change the same data for social accoutns
+
+```ts
+'use server'
+
+import { db } from '@/lib/db'
+
+export async function accountsActions(userId: string) {
+  try {
+    const account = await db.account.findFirst({
+      where: { userId: userId },
+    })
+    return account
+  } catch (error) {
+    null
+  }
+}
+```
+
+- let fix also the types to accept or add a field to the user isOAuth:bolean
+
+```ts
+import { type DefaultSession } from 'next-auth'
+
+// Brad placed this in a next-auth.d.ts file
+
+import { UserRole } from '@prisma/client'
+
+// flow used t inject values to types in nextauth
+export type ExtendedUser = DefaultSession['user'] & {
+  role: UserRole
+  isTwoFactorEnabled: boolean
+  isOAuth: boolean
+}
+
+declare module 'next-auth' {
+  interface Session {
+    user?: ExtendedUser
+  }
+}
+```
+
+- So we have to modify the prisma.schema too then
+- And also we can now grab the account in the auth callbacks
+- hm, interesting, but we are not touching the actual prisma model or database, we adding the logic to the just to the session really
+
+```ts
+import NextAuth from 'next-auth'
+import authConfig from '@/auth.config'
+import { PrismaAdapter } from '@auth/prisma-adapter'
+import { db } from './lib/db'
+import { getUserById } from './helpers/user/getUserById'
+import { UserRole } from '@prisma/client'
+import { getTwoFactorConfirmationByUserId } from './helpers/data/getTwofactorConfirmation'
+import { accountsActions } from './actions/accountsActions'
+
+export const {
+  handlers: { GET, POST },
+  auth,
+  signIn,
+  signOut,
+} = NextAuth({
+  pages: {
+    signIn: '/auth/login',
+    error: '/auth/error',
+  },
+  events: {
+    async linkAccount({ user }) {
+      await db.user.update({
+        where: { id: user.id },
+        data: { emailVerified: new Date() },
+      })
+    },
+  },
+  callbacks: {
+    // hover over session to see options
+    async signIn({ user, account }) {
+      // aloow OAuth witjhout email verification
+      //Althought I odnt think we need it, becasue if social an email will be verifoed one the spot
+      if (account?.provider !== 'credentials') return true
+      const existingUser = await getUserById(user.id)
+      //prevent signin without email verification
+      if (!existingUser || !existingUser.emailVerified) {
+        return false
+      }
+      // prevent sign in if twofactorAuthenticaton is enabled
+      if (existingUser.isTwoFactorEnabled) {
+        const twoFactorConfirmation = await getTwoFactorConfirmationByUserId(
+          existingUser.id
+        )
+        if (!twoFactorConfirmation) return false
+        //Delete twoFactor Confirmation for the next sign in
+        // await db.twoFactorToken.delete({
+        //   where: { id: twoFactorConfirmation.id },
+        // })
+      }
+      return true
+    },
+    async session({ token, session }) {
+      if (token.sub && session.user) {
+        session.user.id = token.sub
+      }
+      if (token.userRole && session.user) {
+        session.user.role = token.userRole as UserRole
+      }
+      if (session.user) {
+        session.user.isTwoFactorEnabled = token.isTwoFactorEnabled as boolean
+        session.user.name = token.name
+        session.user.email = token.email
+        session.user.isOAuth = token.isOAuth as boolean //new
+      }
+      return session
+    },
+    async jwt({ token }) {
+      console.log('Im being called again')
+
+      if (!token.sub) return token
+      const user = await getUserById(token.sub as string)
+
+      if (!user) return token
+
+      const account = await accountsActions(user.id)
+
+      token.isOAuth = !!account //new
+      token.email = user.email
+      token.name = user.name
+      token.userRole = user.role
+      token.isTwoFactorEnabled = user.isTwoFactorEnabled
+      return token
+    },
+  },
+  adapter: PrismaAdapter(db),
+  session: { strategy: 'jwt' },
+  ...authConfig,
+})
+```
+
+### Settign page - FORM
+
+```ts
+'use client'
+
+import { settingsAction } from '@/actions/settingsAction'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { Settings } from 'lucide-react'
+import { useSession } from 'next-auth/react'
+import { useState, useTransition } from 'react'
+
+import * as z from 'zod'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+
+import { Input } from '@/components/ui/input'
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@/components/ui/form'
+
+// import { FormError } from '@/components/form-error'
+import { FormSuccess } from '@/components/form-success'
+import { SettingsSchema } from '@/schemas'
+import { useGetCurrentUser } from '@/hooks/useGetCurrentUser'
+
+import { Switch } from '@/components/ui/switch'
+import { FormError } from '@/components/form-error'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { UserRole } from '@prisma/client'
+
+export default function settingsPage() {
+  const [error, setError] = useState<string | undefined>('')
+  const [success, setSuccess] = useState<string | undefined>('')
+
+  const user = useGetCurrentUser()
+  console.log('user at settingsuser :', user)
+
+  const [isPending, startTransition] = useTransition()
+
+  const { update, data, status } = useSession()
+
+  const onSubmit = async (values: z.infer<typeof SettingsSchema>) => {
+    setError('')
+    setSuccess('')
+    startTransition(() => {
+      settingsAction(values)
+        .then((res) => {
+          if (res.error) {
+            setError(res.error)
+          }
+          if (res.success) {
+            update()
+            setSuccess(res.success)
+          }
+        })
+        .catch(() => setError('Soemthign went wrong'))
+    })
+  }
+
+  const form = useForm<z.infer<typeof SettingsSchema>>({
+    resolver: zodResolver(SettingsSchema),
+    defaultValues: {
+      name: user?.name || undefined,
+      email: user?.email || undefined,
+      isTwoFactorEnabled: user?.isTwoFactorEnabled ?? false,
+      password: undefined,
+      newPassword: undefined,
+      role: user?.role || undefined,
+    },
+  })
+
+  return (
+    <Card className='w-[600px]'>
+      <CardHeader>
+        <p className='text-2xl font-semibold text-center flex items-center justify-center gap-4'>
+          <Settings />
+          Settings
+        </p>
+      </CardHeader>
+      <CardContent>
+        <Form {...form}>
+          <form
+            className='columns-1space-y-6'
+            onSubmit={form.handleSubmit(onSubmit)}>
+            <div className='space-y-4'>
+              <FormField
+                disabled={isPending}
+                control={form.control}
+                name='name'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Name</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        disabled={isPending}
+                        placeholder='Full Name'
+                        type='text'
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name='role'
+                render={({ field }) => (
+                  <FormItem>
+                    <Select
+                      disabled={isPending}
+                      onValueChange={field.onChange}
+                      defaultValue={field.value}>
+                      <FormLabel>Role</FormLabel>
+                      <FormControl>
+                        <SelectTrigger
+                          className={
+                            field.value === UserRole.ADMIN
+                              ? 'text-green-600 font-semibold'
+                              : field.value === UserRole.USER
+                              ? 'text-red-600 font-semibold'
+                              : ''
+                          }>
+                          <SelectValue placeholder='select arole' />
+                        </SelectTrigger>
+                      </FormControl>
+
+                      <SelectContent>
+                        <SelectItem value={UserRole.ADMIN}>Admin</SelectItem>
+                        <SelectItem value={UserRole.USER}>User</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              {user?.isOAuth == false && (
+                <>
+                  <FormField
+                    disabled={isPending}
+                    control={form.control}
+                    name='email'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Email</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            disabled={isPending}
+                            placeholder='john.doe@example.com'
+                            type='email'
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    disabled={isPending}
+                    control={form.control}
+                    name='password'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Password</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            disabled={isPending}
+                            placeholder='******'
+                            type='password'
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    disabled={isPending}
+                    control={form.control}
+                    name='newPassword'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Password</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            disabled={isPending}
+                            placeholder='******'
+                            type='password'
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name='isTwoFactorEnabled'
+                    render={({ field }) => (
+                      <FormItem className='flex items-center justify-between'>
+                        <FormLabel>Two-Factor Authentication</FormLabel>
+                        <FormControl>
+                          <Switch
+                            checked={field.value} // boolean in
+                            onCheckedChange={field.onChange} // boolean out
+                            disabled={isPending}
+                            className='data-[state=checked]:bg-green-600 data-[state=unchecked]:bg-red-600'
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </>
+              )}
+            </div>
+
+            <Button disabled={isPending} className='mt-8'>
+              {isPending ? 'updating ...' : 'Update fields'}
+            </Button>
+          </form>
+        </Form>
+        {error && <FormError message={error} />}
+        {success && <FormSuccess message={success} />}
+      </CardContent>
+    </Card>
+  )
+}
+```
+
+### Fixing things
+
+#### Check and verify email after updating at setting page
+
+- At setting action
+
+```ts
+// check if email you are tring to change is taken
+if (email && email !== dbUser.email) {
+  const existingUser = await getUserById(email)
+  //if user exists and that user isnt us then error
+  if (existingUser && existingUser.id !== user.id) {
+    return { error: 'That email has been taken already' }
+  }
+  // send verificatio token to be able to the new email
+  const verificationToken = await generateVerificationToken(email)
+  await sendVerificationEmail(verificationToken.email, verificationToken.token)
+
+  //Update the user to email not verified
+  await db.user.update({
+    where: { id: user?.id },
+    data: { emailVerified: null },
+  })
+}
+```
+
+#### Hard reload from login page after sign in
+
+```ts
+  try {
+    await signIn('credentials', {
+      email,
+      password,
+      // redirectTo: DEFAULT_LOGIN_REDIRECT,
+      redirect: false,
+    })
+    await db.TwoFactorConfirmation.deleteMany({
+      where: { userId: existingUser.id },
+    })
+    // redirect(DEFAULT_LOGIN_REDIRECT)
+    // for a hot reload
+    // Instead of redirect()
+    return { success: '/settings' }
+  } catch (error) {
+
+```
+
+#### Receiving the response in Login Form
+
+```ts
+startTransition(() => {
+loginAction(values).then((res) => {
+if (res?.error) {
+setError(res.error)
+}
+if (res?.success) {
+setSuccess(res.success)
+if (res.success === 'Enter two factor code') {
+setShowTwoFactor(true)
+}
+if (res.success === '/settings') {
+window.location.href = '/settings'
+// router.push('/settings')
+}
+```
+
+## FINAL TOUCHES
+
+### Login Button
+
+- we have this logic in loginButton
+
+```ts
+if (mode === 'modal') {
+  return (
+    <Dialog>
+      <DialogTrigger asChild={asChild}>{children}</DialogTrigger>
+      <DialogContent className='p-0 w-auto bg-transparent border-none'>
+        <LoginForm />
+      </DialogContent>
+    </Dialog>
+  )
+}
+```
+
+- Now we just have to pass a pro of moda="modal" to have the mdal kick in instea of a redirect to /signin. we can do it right from the start
+
+```ts
+<LoginButton asChild mode='modal'>
+  <Button variant='secondary' size='lg'>
+    Sign in
+  </Button>
+</LoginButton>
+```
+
+### Login callback redirect
+
+- this is great for going back to the same page after logout
+- becuse irght now, after we log out, we are redirected to /auth/login. but maybe, we could attch a callback to the /auth/login/callback so that we trying to login again we get redirected to that callbackl url, whci is the lst url we were on
+- so fisrt lets go to meddleware
+
+```ts
+// if not logged in and not in piblic route then log in!!
+//  ["/"] = we say allow just "/"; not "/"/somehtingElse
+if (!isLoggedIn && !isPublicRoute) {
+  //so upto here is just "/" that gets added to the url
+  // so that if nothing gets added we endup adding just "/" to the end, which will have no effect
+  let callbackUrl = nextUrl.pathname
+  //if search param is detected, its added to the callback, becoming "/searchparam"
+  if (nextUrl.search) {
+    callbackUrl += nextUrl.search
+  }
+  //because we cant read the searchParams, we have to encode that, to be able to properly attach it to the redirectURl string
+  const encodedCallbackUrl = encodeURIComponent(callbackUrl)
+
+  // return Response.redirect(new URL('/auth/login', nextUrl))
+  // so now the fomr can use this callback url if there and use it!!
+  return Response.redirect(
+    new URL(`/auth/login?callbackUrl=${encodedCallbackUrl}`, nextUrl)
+  )
+}
+```
+
+- So the previous will attache a callback to the logout.
+- thus the loginform can grab the callbackUrl and send it with the values to the loginAction!!
+- the previous vs redirecting from the front with that callback Url, as the login is in the action, so dont try it lol.
+
+- go to login form
+
+```ts
+const callbackUrl = searchParams.get('callbackUrl')
+console.log('callbackUrl :', callbackUrl)
+
+   loginAction(values, callbackUrl as string).then((res) => {...// noticed we added the calllbackUrl
+        if (res?.error) {...
+```
+
+- now lets go to the login action
+- we grab the callbckUrl
+- and attch it ot the signIn redirecTo
+
+```ts
+
+```
+
+## Trauble shooting issues
+
+### rihght now we dont have redirect after sign up
+
+- ok so we added this logic to the register form, now we redirect ,lol
+
+```ts
+const router = useRouter()
+const router = useRouter()
+const onSubmit = async (values: z.infer<typeof RegisterSchema>) => {
+  setError('')
+  setSuccess('')
+  startTransition(() => {
+    registerAction(values).then((res) => {
+      if (res?.error) {
+        setError(res.error)
+      }
+      if (res?.success) {
+        setSuccess(res.success)
+        router.push('/login')
+      }
+    })
+  })
+}
+```
+
+### Perfect, now lets deal with the double run of react
+
+- As we get an erro wehn redirected from email, but remeber, everything is fine, its just a ract thing cuz is running on stric with next js.
+
+- So im gonna talk to chatGPT and see how we can disable this cuz its annoying while in dev mode
+- ok we just need to modify the next.config file.
+
+```ts
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  reactStrictMode: false, // new
+}
+
+module.exports = nextConfig
+```
+
+- ok thast fixed it!
+
+### fixing the 2FA
+
+- , seems like we have a weird lood or classs in logic and we dotn get theemail confirmation
+- like its bypassed, it was working fine but i might disturbed that when fixing soemthing else. lets check!
+- ok, everything is fine!! it seems like ti was the react rerender that was couing issues as all good now!!

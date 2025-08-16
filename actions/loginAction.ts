@@ -16,7 +16,12 @@ import { AuthError } from 'next-auth'
 import { redirect } from 'next/navigation'
 import z from 'zod'
 
-export async function loginAction(values: z.infer<typeof LoginSchema>) {
+export async function loginAction(
+  values: z.infer<typeof LoginSchema>,
+  newCallbackUrl?: string
+) {
+  console.log('newCallbackUrl at loginAction', newCallbackUrl)
+
   const validatedValues = LoginSchema.safeParse(values)
   if (!validatedValues.success) {
     return { error: 'Invalid Objects' }
@@ -34,7 +39,7 @@ export async function loginAction(values: z.infer<typeof LoginSchema>) {
       verificationToken.email,
       verificationToken.token
     )
-    return { success: 'confirmation email sent' }
+    return { success: 'confirmation email sent!!!' }
   }
 
   // check first if a twoFactorToken has been generated and is attched to that email
@@ -43,6 +48,9 @@ export async function loginAction(values: z.infer<typeof LoginSchema>) {
   console.log('code :', { code })
 
   if (token) {
+    // if (token && !existingUser.TwoFactorConfirmation) {
+    //   await sendTwoFactorTokenEmail(email, token.token)
+    // }
     if (token.token !== code?.trim()) {
       return { error: 'Tokens dontmatch!' }
     }
@@ -60,7 +68,6 @@ export async function loginAction(values: z.infer<typeof LoginSchema>) {
       where: { id: token.id },
     })
   }
-
   // if user is enabled but not two factor confirmation in place
   // so creat token and send email with token
   //check exitning USing again as it ws probably updated
@@ -78,24 +85,28 @@ export async function loginAction(values: z.infer<typeof LoginSchema>) {
     )
 
     const generateToken = await generateTwofactorToken(email)
+    // const twoFactorTokenEmailSent = await sendTwoFactorTokenEmail(
     await sendTwoFactorTokenEmail(email, generateToken.token)
-    console.log('sent email for two factor confirmation')
+    // if (!twoFactorTokenEmailSent) {
+    //   return { error: 'coudnt sent email for 2FA' }
+    // }
+
+    console.log('email for two factor confirmation')
+
     return {
       success: 'Enter two factor code',
     }
   }
-
   try {
     await signIn('credentials', {
       email,
       password,
-      // redirectTo: DEFAULT_LOGIN_REDIRECT,
-      redirect: false,
+      // redirectTo: newCallbackUrl || DEFAULT_LOGIN_REDIRECT,
     })
     await db.TwoFactorConfirmation.deleteMany({
       where: { userId: existingUser.id },
     })
-    redirect(DEFAULT_LOGIN_REDIRECT)
+    redirect(newCallbackUrl ? newCallbackUrl : DEFAULT_LOGIN_REDIRECT)
   } catch (error) {
     if (error instanceof AuthError) {
       switch (error.type) {

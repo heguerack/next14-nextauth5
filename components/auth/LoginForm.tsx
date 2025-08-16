@@ -23,7 +23,6 @@ import { CardWrapper } from './CardWrapper'
 import { FormError } from '../form-error'
 import { FormSuccess } from '../form-success'
 import { loginAction } from '@/actions/loginAction'
-import { DEFAULT_LOGIN_REDIRECT } from '@/routes'
 
 export const LoginForm = () => {
   const searchParams = useSearchParams()
@@ -32,6 +31,15 @@ export const LoginForm = () => {
       ? 'Another account already exists with the same e-mail address, maybe a cosial account withe same email'
       : ''
   const emailVerified = searchParams.get('verifiedMessage')
+  const callbackUrl = searchParams.get('callbackUrl')
+  console.log('callbackURL :', callbackUrl)
+
+  let newCallbackUrl: string | null
+  callbackUrl?.startsWith('auth')
+    ? (newCallbackUrl = null)
+    : (newCallbackUrl = callbackUrl)
+
+  console.log('newCallbackUrl :', newCallbackUrl)
 
   const [showTwoFactor, setShowTwoFactor] = useState(false)
   const [error, setError] = useState<string | undefined>('')
@@ -51,7 +59,7 @@ export const LoginForm = () => {
     setError('')
     setSuccess('')
     startTransition(() => {
-      loginAction(values).then((res) => {
+      loginAction(values, newCallbackUrl as string).then((res) => {
         if (res?.error) {
           setError(res.error)
         }

@@ -1,20 +1,12 @@
-import NextAuth, { type DefaultSession } from 'next-auth'
+import NextAuth from 'next-auth'
 import authConfig from '@/auth.config'
 import { PrismaAdapter } from '@auth/prisma-adapter'
 import { db } from './lib/db'
 import { getUserById } from './helpers/user/getUserById'
 import { UserRole } from '@prisma/client'
 import { getTwoFactorConfirmationByUserId } from './helpers/data/getTwofactorConfirmation'
-
-// Brad placed this in a next-auth.d.ts file
-// flow used t inject values to types in nextauth
-declare module 'next-auth' {
-  interface Session {
-    user: DefaultSession['user'] & {
-      role: 'ADMIN' | 'USER'
-    }
-  }
-}
+import { accountsActions } from './actions/accountsActions'
+import { redirect } from 'next/navigation'
 
 export const {
   handlers: { GET, POST },
@@ -58,13 +50,7 @@ export const {
       }
       return true
     },
-    async session({ token, session, user }) {
-      // we must return session
-      // console.log('session from callback session :', session)
-      // console.log('session token:', token)
-      // if (session.user) {
-      //   session.user. = token.customField
-      // }
+    async session({ token, session }) {
       if (token.sub && session.user) {
         session.user.id = token.sub
         // console.log('sessionSession :', session)
@@ -73,21 +59,35 @@ export const {
       if (token.userRole && session.user) {
         session.user.role = token.userRole as UserRole
       }
+      if (session.user) {
+        // seems like i odnt need to reply in adding stuff to the token, i an just bring it here via actions!
+        // const user = await getUserById(session.user.id)
+        session.user.isTwoFactorEnabled = token.isTwoFactorEnabled as boolean
+        session.user.name = token.name
+        session.user.email = token.email
+        session.user.isOAuth = token.isOAuth as boolean
+      }
 
       return session
     },
     // hover over jwt for options
     async jwt({ token }) {
-      // console.log('jwt token :', token)
+      console.log('Im being called again')
 
+      // console.log('jwt token :', token)
       // we must return token
-      // token.customField = 'test'
-      // so to add the id to the session , we can just grab the sub from token in session
-      // now lets add the role, to do that we need to use our action to grab the user from there, as we cant really access user info in the token, not sure why, still trying to figure out things in detail
       if (!token.sub) return token
       const user = await getUserById(token.sub as string)
+
       if (!user) return token
-      token.userRole = user?.role
+
+      const account = await accountsActions(user.id)
+      // so the !! is returnning a boolean, like if ancount return true else false
+      token.isOAuth = !!account
+      token.email = user.email
+      token.name = user.name
+      token.userRole = user.role
+      token.isTwoFactorEnabled = user.isTwoFactorEnabled
       return token
     },
   },

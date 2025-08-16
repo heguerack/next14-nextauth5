@@ -35,21 +35,6 @@ export default function newVerificationPage() {
     onSubmit()
   }, [onSubmit])
 
-  // because we are not exporting the on submid funtion, then i like it his way better:
-  // useEffect(() => {
-  //   if (!token) {
-  //     setError('Missing token')
-  //     return
-  //   }
-  //   newVerificationTokenAction(token)
-  // .then((data) => {
-  //   setSuccess(data.success)
-  //   setError(data.error)
-  // })
-  // .catch((error) => {
-  //   setError('Somethig went wrong')
-  // })
-  // }, [token])
   return (
     <CardWrapper
       headerLabel='Confirming your verification'

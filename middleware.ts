@@ -37,7 +37,21 @@ export default auth((req) => {
   // if not logged in and not in piblic route then log in!!
   //  ["/"] = we say allow just "/"; not "/"/somehtingElse
   if (!isLoggedIn && !isPublicRoute) {
-    return Response.redirect(new URL('/auth/login', nextUrl))
+    //so upto here is just "/" that gets added to the url
+    // so that if nothing gets added we endup adding just "/" to the end, which will have no effect
+    let callbackUrl = nextUrl.pathname
+    //if search param is detected, its added to the callback, becoming "/searchparam"
+    if (nextUrl.search) {
+      callbackUrl += nextUrl.search
+    }
+    //because we cant read the searchParams, we have to encode that, to be able to properly attach it to the redirectURl string
+    const encodedCallbackUrl = encodeURIComponent(callbackUrl)
+
+    // return Response.redirect(new URL('/auth/login', nextUrl))
+    // so now the fomr can use this callback url if there and use it!!
+    return Response.redirect(
+      new URL(`/auth/login?callbackUrl=${encodedCallbackUrl}`, nextUrl)
+    )
   }
 
   //allow everything else
