@@ -12,6 +12,7 @@ const { auth } = NextAuth(authConfig)
 export default auth((req) => {
   // console.log('ROUTE', req.nextUrl.pathname)
   // console.log('is logged in ?: ', isLoggedIn)
+  // console.log('SECRET in middleware:', process.env.AUTH_SECRET)
   const { nextUrl } = req
 
   const isLoggedIn = !!req.auth
@@ -45,15 +46,17 @@ export default auth((req) => {
       callbackUrl += nextUrl.search
     }
     //because we cant read the searchParams, we have to encode that, to be able to properly attach it to the redirectURl string
-    const encodedCallbackUrl = encodeURIComponent(callbackUrl)
+    // const encodedCallbackUrl = encodeURIComponent(callbackUrl)
 
-    // return Response.redirect(new URL('/auth/login', nextUrl))
+    return Response.redirect(new URL('/auth/login', nextUrl))
     // so now the fomr can use this callback url if there and use it!!
-    return Response.redirect(
-      new URL(`/auth/login?callbackUrl=${encodedCallbackUrl}`, nextUrl)
-    )
+    // return Response.redirect(
+    //   new URL(`/auth/login?callbackUrl=${encodedCallbackUrl}`, nextUrl)
+    // )
   }
-
+  // if (isLoggedIn && nextUrl.pathname === '/') {
+  //   return Response.redirect(new URL(DEFAULT_LOGIN_REDIRECT, nextUrl))
+  // }
   //allow everything else
   return null
 })

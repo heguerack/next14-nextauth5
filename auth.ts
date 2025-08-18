@@ -71,7 +71,7 @@ export const {
     },
     // hover over jwt for options
     async jwt({ token }) {
-      console.log('Im being called again')
+      console.log('call from auth.ts>jwt')
 
       // console.log('jwt token :', token)
       // we must return token

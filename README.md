@@ -4176,4 +4176,5 @@ module.exports = nextConfig
 
 ## Sucess!!!
 
-- actually not really, im stil trying to ctch a bug that doesnt let me see Admin when on admin.
+- actually not really, im stil trying to catch a bug that doesnt let me see Admin when on admin.
+- everything seems fine, but when using a diferen winow and loggin out and try to login, it does nit redirect, to setting, could be the miffleware...still hunting

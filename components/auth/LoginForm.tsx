@@ -64,10 +64,11 @@ export const LoginForm = () => {
           setError(res.error)
         }
         if (res?.success) {
-          setSuccess(res.success)
           if (res.success === 'Enter two factor code') {
             setShowTwoFactor(true)
+            // setSuccess(res.success)
           }
+          setSuccess(res.success)
         }
       })
     })

@@ -17,7 +17,7 @@ git push -u origin main
 git branch
 git checkout main
 git add .
-git commit -m "fixing a bug in admin as admin content wont show on admin role"
+git commit -m "Finish version v3!!"
 git push -u origin main
 ```
 
@@ -26,15 +26,15 @@ git push -u origin main
 - -donbt forget to puch to the new branch
 
 ```ts
-git checkout -b finished-v3
-git push -u origin finished-v3
+git checkout -b finished-v4
+git push -u origin finished-v4
 ```
 
 - Now swith to main and pull from github
 
 ```ts
 git checkout main
-git pull origin main // this is optional, just if someone else is working on it
+git pull origin main
 ```
 
 ## Github branches lecture
