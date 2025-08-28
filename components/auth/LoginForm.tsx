@@ -2,7 +2,7 @@
 
 import * as z from 'zod'
 import { useForm } from 'react-hook-form'
-import { useEffect, useState, useTransition } from 'react'
+import { useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { zodResolver } from '@hookform/resolvers/zod'
 import Link from 'next/link'
@@ -28,18 +28,11 @@ export const LoginForm = () => {
   const searchParams = useSearchParams()
   const urlError =
     searchParams.get('error') === 'OAuthAccountNotLinked'
-      ? 'Another account already exists with the same e-mail address, maybe a cosial account withe same email'
+      ? 'Email already in use with different provider!'
       : ''
-  const emailVerified = searchParams.get('verifiedMessage')
+  // const emailVerified = searchParams.get('verifiedMessage')
   const callbackUrl = searchParams.get('callbackUrl')
-  console.log('callbackURL :', callbackUrl)
-
-  let newCallbackUrl: string | null
-  callbackUrl?.startsWith('auth')
-    ? (newCallbackUrl = null)
-    : (newCallbackUrl = callbackUrl)
-
-  console.log('newCallbackUrl :', newCallbackUrl)
+  // console.log('callbackURL :', callbackUrl)
 
   const [showTwoFactor, setShowTwoFactor] = useState(false)
   const [error, setError] = useState<string | undefined>('')
@@ -59,18 +52,21 @@ export const LoginForm = () => {
     setError('')
     setSuccess('')
     startTransition(() => {
-      loginAction(values, newCallbackUrl as string).then((res) => {
-        if (res?.error) {
-          setError(res.error)
-        }
-        if (res?.success) {
-          if (res.success === 'Enter two factor code') {
-            setShowTwoFactor(true)
-            // setSuccess(res.success)
+      loginAction(values, callbackUrl as string)
+        .then((res) => {
+          if (res?.error) {
+            form.reset()
+            setError(res.error)
           }
-          setSuccess(res.success)
-        }
-      })
+          if (res?.success) {
+            form.reset()
+            setSuccess(res.success)
+          }
+          if (res?.twoFactor) {
+            setShowTwoFactor(true)
+          }
+        })
+        .catch(() => setError('Something went wrong'))
     })
   }
 
@@ -154,10 +150,9 @@ export const LoginForm = () => {
           </div>
           <FormError message={error || urlError} />
           <FormSuccess message={success} />
-          {emailVerified && <FormSuccess message={emailVerified} />}
 
           <Button disabled={isPending} type='submit' className='w-full'>
-            Login
+            {showTwoFactor ? 'Confirm' : 'Login'}
           </Button>
         </form>
       </Form>

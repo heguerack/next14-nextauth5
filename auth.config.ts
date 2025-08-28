@@ -14,10 +14,13 @@ export default {
         const validatedFileds = LoginSchema.safeParse(credentials)
         if (validatedFileds.success) {
           const { email, password } = validatedFileds.data
+
           // check if user exists
           const user = await getUserByEmail(email)
+
           // this because if not user or if user but user does not have a [pasword. becuase they probably signed up with  say google or a diferent way
           if (!user || !user.password) return null
+
           // user.password because thast the hasshedPassword cming back
           const passwordsMatch = await bcrypt.compare(password, user.password)
           if (passwordsMatch) return user

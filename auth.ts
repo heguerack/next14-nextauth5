@@ -26,41 +26,39 @@ export const {
     },
   },
   callbacks: {
-    // hover over session to see options
     async signIn({ user, account }) {
-      // aloow OAuth witjhout email verification
-      //Althought I odnt think we need it, becasue if social an email will be verifoed one the spot
+      // allow OAuth without email verification (like google,facebook, github and so on)
       if (account?.provider !== 'credentials') return true
+
       const existingUser = await getUserById(user.id as string)
+
       //prevent signin without email verification
-      if (!existingUser || !existingUser.emailVerified) {
-        return false
-      }
-      // prevent sign in if twofactorAuthenticaton is enabled
+      if (!existingUser?.emailVerified) return false
+
+      // prevent sign in, if 2FA is enabled
       if (existingUser.isTwoFactorEnabled) {
         const twoFactorConfirmation = await getTwoFactorConfirmationByUserId(
           existingUser.id
         )
         if (!twoFactorConfirmation) return false
+
         //Delete twoFactor Confirmation for the next sign in
-        // await db.twoFactorToken.delete({
-        //   where: { id: twoFactorConfirmation.id },
-        // })
+        await db.twoFactorConfirmation.delete({
+          where: { id: twoFactorConfirmation.id },
+        })
       }
       return true
     },
     async session({ token, session }) {
+      console.log({ token, session })
+
       if (token.sub && session.user) {
         session.user.id = token.sub
-        // console.log('sessionSession :', session)
-        // console.log('sessionToken :', token)
       }
       if (token.userRole && session.user) {
         session.user.role = token.userRole as UserRole
       }
       if (session.user) {
-        // seems like i odnt need to reply in adding stuff to the token, i an just bring it here via actions!
-        // const user = await getUserById(session.user.id)
         session.user.isTwoFactorEnabled = token.isTwoFactorEnabled as boolean
         session.user.name = token.name
         session.user.email = token.email as string
@@ -71,13 +69,9 @@ export const {
     },
     // hover over jwt for options
     async jwt({ token }) {
-      console.log('call from auth.ts>jwt')
-
-      // console.log('jwt token :', token)
-      // we must return token
       if (!token.sub) return token
-      const user = await getUserById(token.sub as string)
 
+      const user = await getUserById(token.sub as string)
       if (!user) return token
 
       const account = await accountsActions(user.id)
