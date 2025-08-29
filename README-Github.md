@@ -26,8 +26,8 @@ git push -u origin main
 - -donbt forget to puch to the new branch
 
 ```ts
-git checkout -b finished-v5-01
-git push -u origin finished-v5-01
+git checkout -b finished-v5-02
+git push -u origin finished-v5-02
 ```
 
 - Now swith to main and pull from github
