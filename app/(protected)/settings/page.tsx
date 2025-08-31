@@ -36,11 +36,13 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { UserRole } from '@prisma/client'
+import { deleteUserAction } from '@/actions/deleteUserAction'
+import { accountsActions } from '@/actions/accountsActions'
 
 export default function settingsPage() {
   const [error, setError] = useState<string | undefined>('')
   const [success, setSuccess] = useState<string | undefined>('')
-  const [fetchUser, setFetchUser] = useState<Object | null>(null)
+
   const user = useGetCurrentUser()
 
   console.log('user at settingsuser :', user)
@@ -240,6 +242,15 @@ export default function settingsPage() {
             </Button>
           </form>
         </Form>
+
+        <Button
+          onClick={async () => await deleteUserAction(user?.id as string)}
+          disabled={isPending}
+          className='mt-8'>
+          {user?.isOAuth
+            ? 'Delete OAuth  user to register  as JWT user (email and passsword)'
+            : 'Delete JWT user to register as OAuth (ex: google and gitHub)'}
+        </Button>
         {error && <FormError message={error} />}
         {success && <FormSuccess message={success} />}
       </CardContent>

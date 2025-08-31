@@ -3,7 +3,7 @@
 import * as z from 'zod'
 import { useForm } from 'react-hook-form'
 import { useState, useTransition } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { zodResolver } from '@hookform/resolvers/zod'
 import Link from 'next/link'
 
@@ -31,6 +31,7 @@ export const LoginForm = () => {
       ? 'Email already in use with different provider!'
       : ''
   // const emailVerified = searchParams.get('verifiedMessage')
+  // const baseUrl = process.env.NEXT_AUTH_URL || 'http://localhost:3000'
   const callbackUrl = searchParams.get('callbackUrl')
   // console.log('callbackURL :', callbackUrl)
 
@@ -150,9 +151,8 @@ export const LoginForm = () => {
           </div>
           <FormError message={error || urlError} />
           <FormSuccess message={success} />
-
           <Button disabled={isPending} type='submit' className='w-full'>
-            {showTwoFactor ? 'Confirm' : 'Login'}
+            Login
           </Button>
         </form>
       </Form>

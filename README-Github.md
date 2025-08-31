@@ -17,7 +17,7 @@ git push -u origin main
 git branch
 git checkout main
 git add .
-git commit -m "Finish version v5-02"
+git commit -m "Finish version v5-04"
 git push -u origin main
 ```
 
@@ -26,8 +26,8 @@ git push -u origin main
 - -donbt forget to puch to the new branch
 
 ```ts
-git checkout -b finished-v5-02
-git push -u origin finished-v5-02
+git checkout -b finished-v5-04
+git push -u origin finished-v5-04
 ```
 
 - Now swith to main and pull from github
